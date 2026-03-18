@@ -281,6 +281,28 @@ async def manufacturers_list():
     return {"manufacturers": manufacturers}
 
 
+@app.get("/api/product-types/list")
+async def product_types_list():
+    """Return list of unique product types for dropdown. Pandas only, $0 cost."""
+    if not state.data_loaded or state.df.empty:
+        return {"product_types": []}
+
+    col = "Product_Type" if "Product_Type" in state.df.columns else None
+    if not col:
+        return {"product_types": []}
+
+    product_types = sorted(
+        state.df[col]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s != ""]
+        .unique()
+        .tolist()
+    )
+    return {"product_types": product_types}
+
+
 @app.get("/api/chemicals/list")
 async def chemicals_list():
     """Return list of chemical names for dropdown. Pandas only, $0 cost."""

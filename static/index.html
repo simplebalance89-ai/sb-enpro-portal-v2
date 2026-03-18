@@ -654,6 +654,9 @@
     <button class="qa-btn" onclick="showModal('supplier')">
         <span class="qa-icon">&#128230;</span> Supplier
     </button>
+    <button class="qa-btn" onclick="showModal('product_type')">
+        <span class="qa-icon">&#128220;</span> Product Type
+    </button>
     <button class="qa-btn" onclick="showModal('chemical')">
         <span class="qa-icon">&#9879;</span> Chemical
     </button>
@@ -716,6 +719,9 @@
             <div class="suggest-dropdown" id="suggestDropdown"></div>
             <select id="chemicalSelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
                 <option value="">-- Or pick from known chemicals --</option>
+            </select>
+            <select id="productTypeSelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
+                <option value="">-- Pick a product type --</option>
             </select>
             <select id="manufacturerSelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
                 <option value="">-- Pick a manufacturer --</option>

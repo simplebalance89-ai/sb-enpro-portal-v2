@@ -625,6 +625,7 @@
         document.getElementById('chemicalSelect').style.display = type === 'chemical' ? 'block' : 'none';
         document.getElementById('manufacturerSelect').style.display = type === 'manufacturer' ? 'block' : 'none';
         document.getElementById('pregameSelect').style.display = type === 'pregame' ? 'block' : 'none';
+        document.getElementById('productTypeSelect').style.display = type === 'product_type' ? 'block' : 'none';
 
         switch (type) {
             case 'lookup':
@@ -662,6 +663,12 @@
                 modalLabel.textContent = 'Customer or Industry';
                 modalInput.placeholder = 'e.g., brewery, refinery, municipal water';
                 modalHint.textContent = 'Enter customer name or industry, or pick from the list below.';
+                break;
+            case 'product_type':
+                modalTitle.textContent = 'Product Type Search';
+                modalLabel.textContent = 'Product Type';
+                modalInput.placeholder = 'e.g., Filter Cartridge';
+                modalHint.textContent = 'Pick a product type from the list or type one.';
                 break;
             case 'price':
                 modalTitle.textContent = 'Price Check';
@@ -721,6 +728,7 @@
             case 'manufacturer': sendMessage('manufacturer ' + val); break;
             case 'supplier': sendMessage('supplier ' + val); break;
             case 'pregame': sendMessage('pregame ' + val); break;
+            case 'product_type': doSearch(val); break;
             case 'price': sendMessage('price ' + val); break;
             case 'compare': sendMessage('compare ' + val); break;
         }
@@ -903,6 +911,30 @@
             });
         } catch (err) {
             console.error('Failed to load manufacturers list:', err);
+        }
+    })();
+
+    // ── Load product types for dropdown ──
+    (async function loadProductTypes() {
+        try {
+            var res = await fetch(API_BASE + '/api/product-types/list');
+            var data = await res.json();
+            var types = data.product_types || [];
+            var select = document.getElementById('productTypeSelect');
+            types.forEach(function (t) {
+                var opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', function () {
+                if (select.value) {
+                    modalInput.value = select.value;
+                    modalSubmit();
+                }
+            });
+        } catch (err) {
+            console.error('Failed to load product types:', err);
         }
     })();
 
