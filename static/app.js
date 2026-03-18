@@ -573,9 +573,10 @@
         var val = modalInput.value.trim();
         if (!val) return;
 
+        var type = currentModalType;
         hideModal();
 
-        switch (currentModalType) {
+        switch (type) {
             case 'lookup': doLookup(val); break;
             case 'chemical': doChemical(val); break;
             case 'search': doSearch(val); break;
