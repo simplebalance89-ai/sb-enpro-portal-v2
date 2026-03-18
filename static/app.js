@@ -305,7 +305,7 @@
 
         // Handle different response shapes
         if (data.products && Array.isArray(data.products) && data.products.length > 0) {
-            if (data.text || data.response) appendMessage('bot', formatMarkdown(data.text || data.response));
+            // Only show cards — no redundant text dump above them
             await renderProductsBatched(data.products);
         } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
             if (data.total_found !== undefined) {
@@ -689,7 +689,8 @@
             html += '<div style="margin-bottom:12px;">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Key Concerns</div>';
             data.concerns.forEach(function (c, i) {
-                html += '<div style="padding:4px 0; font-size:13px;">' + (i+1) + '. ' + esc(c) + '</div>';
+                var searchTerm = c.replace(/[,()]/g, '').trim().substring(0, 40);
+                html += '<div class="followup-btn" style="display:block; text-align:left; margin-bottom:4px; padding:6px 10px; font-size:13px; cursor:pointer;" onclick="sendMessage(\'search ' + esc(searchTerm).replace(/'/g, "\\'") + '\')">' + (i+1) + '. ' + esc(c) + '</div>';
             });
             html += '</div>';
         }
@@ -697,13 +698,14 @@
         if (data.product) {
             html += '<div style="margin-bottom:12px;">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Recommended Product</div>';
-            html += '<div style="font-size:14px; font-weight:600; color:var(--navy);">' + esc(data.product) + '</div>';
+            var prodSearch = data.product.replace(/[()]/g, '').trim();
+            html += '<div class="followup-btn" style="display:inline-block; font-size:14px; font-weight:600; padding:6px 12px; cursor:pointer;" onclick="sendMessage(\'search ' + esc(prodSearch).replace(/'/g, "\\'") + '\')">' + esc(data.product) + '</div>';
             html += '</div>';
         }
 
         if (data.question) {
-            html += '<div style="margin-bottom:12px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent);">';
-            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question</div>';
+            html += '<div style="margin-bottom:12px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent); cursor:pointer;" onclick="copyToClipboard(\'' + esc(data.question).replace(/'/g, "\\'") + '\', this)">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question <span style="font-size:10px; font-weight:400;">(click to copy)</span></div>';
             html += '<div style="font-size:14px; font-style:italic; color:var(--text);">\u201c' + esc(data.question) + '\u201d</div>';
             html += '</div>';
         }
