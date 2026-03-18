@@ -680,7 +680,7 @@
         html += '<div class="chemical-card-body">';
 
         if (data.concerns && data.concerns.length > 0) {
-            html += '<div style="margin-bottom:10px;">';
+            html += '<div style="margin-bottom:12px;">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Key Concerns</div>';
             data.concerns.forEach(function (c, i) {
                 html += '<div style="padding:4px 0; font-size:13px;">' + (i+1) + '. ' + esc(c) + '</div>';
@@ -689,25 +689,40 @@
         }
 
         if (data.product) {
-            html += '<div style="margin-bottom:10px;">';
+            html += '<div style="margin-bottom:12px;">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Recommended Product</div>';
             html += '<div style="font-size:14px; font-weight:600; color:var(--navy);">' + esc(data.product) + '</div>';
             html += '</div>';
         }
 
         if (data.question) {
-            html += '<div style="margin-bottom:10px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent);">';
+            html += '<div style="margin-bottom:12px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent);">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question</div>';
             html += '<div style="font-size:14px; font-style:italic; color:var(--text);">\u201c' + esc(data.question) + '\u201d</div>';
             html += '</div>';
         }
 
         if (data.caseStudy) {
-            html += '<div style="margin-bottom:8px;">';
+            html += '<div style="margin-bottom:10px;">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Case Study</div>';
             html += '<div style="font-size:13px; color:var(--text);">' + esc(data.caseStudy) + '</div>';
             html += '</div>';
         }
+
+        // Chain action buttons — guide the rep to the next step
+        html += '<div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:8px;">';
+
+        if (data.product) {
+            var searchQuery = data.product.replace(/[()]/g, '').trim();
+            html += '<button class="followup-btn" onclick="sendMessage(\'search ' + esc(searchQuery).replace(/'/g, "\\'") + '\')">Find ' + esc(data.product.substring(0, 20)) + '</button>';
+        }
+
+        if (data.industry) {
+            html += '<button class="followup-btn" onclick="sendMessage(\'chemical compatibility common in ' + esc(data.industry).replace(/'/g, "\\'") + '\')">Chemical Check</button>';
+        }
+
+        html += '<button class="followup-btn" onclick="sendMessage(\'show me more details\')">Full Prep</button>';
+        html += '</div>';
 
         html += '</div></div>';
         return html;
@@ -991,6 +1006,66 @@
         closeComparePanel();
         updateQuoteTracker('compare', sourcePn);
         sendMessage('compare ' + sourcePn + ' vs ' + input.value.trim());
+    };
+
+    // ── Compare Selector (top-nav / quick action Compare button) ──
+    window.openCompareSelector = function() {
+        var panel = document.getElementById('comparePanel');
+        var overlay = document.getElementById('comparePanelOverlay');
+        var body = document.getElementById('comparePanelBody');
+
+        document.getElementById('comparePanelTitle').textContent = 'Compare Products';
+
+        var html = '';
+
+        // Part A field — auto-fill if we have a pinned/last product
+        var partA = '';
+        if (sessionContext && sessionContext.pinnedPart) {
+            partA = sessionContext.pinnedPart.Part_Number || '';
+        }
+
+        html += '<div style="margin-bottom:16px;">';
+        html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part A</label>';
+        html += '<input type="text" id="comparePartA" value="' + (partA ? partA : '') + '" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '</div>';
+
+        html += '<div style="margin-bottom:16px;">';
+        html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part B</label>';
+        html += '<input type="text" id="comparePartB" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '</div>';
+
+        html += '<button onclick="runCompareSelector()" style="width:100%; padding:12px; background:var(--accent); color:white; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;">Compare Side-by-Side</button>';
+
+        html += '<div id="compareSelectorResults" style="margin-top:16px;"></div>';
+
+        body.innerHTML = html;
+        panel.classList.add('open');
+        overlay.classList.add('active');
+
+        // Focus the empty field
+        var focusField = partA ? document.getElementById('comparePartB') : document.getElementById('comparePartA');
+        setTimeout(function() { focusField.focus(); }, 200);
+
+        // Add Enter key handlers
+        var partAInput = document.getElementById('comparePartA');
+        var partBInput = document.getElementById('comparePartB');
+        partAInput.onkeydown = function(e) { if (e.key === 'Enter') partBInput.focus(); };
+        partBInput.onkeydown = function(e) { if (e.key === 'Enter') runCompareSelector(); };
+    };
+
+    window.runCompareSelector = function() {
+        var partA = (document.getElementById('comparePartA') || {}).value.trim();
+        var partB = (document.getElementById('comparePartB') || {}).value.trim();
+
+        if (!partA || !partB) {
+            alert('Enter both part numbers to compare.');
+            return;
+        }
+
+        closeComparePanel();
+        if (typeof sessionContext !== 'undefined') sessionContext.compared = true;
+        if (typeof renderContextCard === 'function') renderContextCard();
+        sendMessage('compare ' + partA + ' vs ' + partB);
     };
 
     // Execute the compare
@@ -1743,6 +1818,12 @@
     // Hook into showModal to activate flow
     var origShowModal = window.showModal;
     window.showModal = function (type) {
+        // Override compare to use selector panel
+        if (type === 'compare') {
+            activateFlow('Compare');
+            openCompareSelector();
+            return;
+        }
         var flowNames = {
             'lookup': 'Lookup', 'chemical': 'Chemical', 'search': 'Search',
             'compare': 'Compare', 'manufacturer': 'Manufacturer',
