@@ -127,5 +127,52 @@ def merge_data(static: pd.DataFrame, inventory: pd.DataFrame) -> pd.DataFrame:
     else:
         merged["Total_Stock"] = 0
 
+    # Apply manufacturer + product type display mappings
+    merged = _apply_display_mappings(merged)
+
     logger.info(f"Merged dataset: {len(merged)} rows")
     return merged
+
+
+def _apply_display_mappings(df: pd.DataFrame) -> pd.DataFrame:
+    """Map Product_Group codes to clean manufacturer names, consolidate product types."""
+    import json
+
+    mapping_path = os.path.join(os.path.dirname(__file__), "data", "manufacturer_mapping.json")
+    if not os.path.exists(mapping_path):
+        logger.warning("Manufacturer mapping file not found — skipping display mappings")
+        return df
+
+    try:
+        with open(mapping_path, "r") as f:
+            mappings = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load manufacturer mapping: {e}")
+        return df
+
+    mfr_map = mappings.get("manufacturer_map", {})
+    pt_map = mappings.get("product_type_map", {})
+
+    # Map Product_Group prefix (first 4 chars) to display name
+    if "Product_Group" in df.columns and mfr_map:
+        def _map_mfr(pg):
+            pg_str = str(pg).strip()
+            if not pg_str or pg_str in ("", "0", "nan"):
+                return ""
+            prefix = pg_str[:4].upper()
+            return mfr_map.get(prefix, "")
+
+        df["Manufacturer_Display"] = df["Product_Group"].apply(_map_mfr)
+        # Fill blanks with Final_Manufacturer fallback
+        if "Final_Manufacturer" in df.columns:
+            blank_mask = df["Manufacturer_Display"] == ""
+            df.loc[blank_mask, "Manufacturer_Display"] = df.loc[blank_mask, "Final_Manufacturer"].fillna("")
+        mapped_count = (df["Manufacturer_Display"] != "").sum()
+        logger.info(f"Manufacturer display mapped: {mapped_count}/{len(df)} rows")
+
+    # Map Product_Type to consolidated display name
+    if "Product_Type" in df.columns and pt_map:
+        df["Product_Type_Display"] = df["Product_Type"].map(pt_map).fillna(df["Product_Type"])
+        logger.info(f"Product type display mapped: {len(pt_map)} categories")
+
+    return df

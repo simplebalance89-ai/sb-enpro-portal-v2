@@ -278,10 +278,11 @@ async def manufacturers_list():
 
     import re as _re
 
-    # Prefer Product_Group_Description (clean P21 groups) over Final_Manufacturer (dirty)
-    use_pg = "Product_Group_Description" in state.df.columns
-    col = "Product_Group_Description" if use_pg else (
-        "Final_Manufacturer" if "Final_Manufacturer" in state.df.columns else "Manufacturer"
+    # Prefer Manufacturer_Display (mapped from Product_Group) over raw names
+    col = "Manufacturer_Display" if "Manufacturer_Display" in state.df.columns else (
+        "Product_Group_Description" if "Product_Group_Description" in state.df.columns else (
+            "Final_Manufacturer" if "Final_Manufacturer" in state.df.columns else "Manufacturer"
+        )
     )
     if col not in state.df.columns:
         return {"manufacturers": []}
@@ -324,7 +325,9 @@ async def product_types_list():
     if not state.data_loaded or state.df.empty:
         return {"product_types": []}
 
-    col = "Product_Type" if "Product_Type" in state.df.columns else None
+    col = "Product_Type_Display" if "Product_Type_Display" in state.df.columns else (
+        "Product_Type" if "Product_Type" in state.df.columns else None
+    )
     if not col:
         return {"product_types": []}
 
