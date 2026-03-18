@@ -21,6 +21,7 @@
             '.sim-bar-btn:hover { background: rgba(255,255,255,0.3); }',
             '.sim-narration { position: fixed; top: 52px; left: 0; right: 0; z-index: 1999; background: rgba(0,51,102,0.95); color: white; padding: 10px 20px; font-size: 14px; font-style: italic; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }',
             '@media (max-width: 600px) { .sim-bar { padding: 8px 12px; gap: 8px; flex-wrap: wrap; } .sim-bar-title { font-size: 12px; } .sim-narration { font-size: 12px; top: 60px; } }',
+            '.ac-item:hover { background: #f0f4ff; }',
         ].join('\n');
         document.head.appendChild(style);
     })();
@@ -39,6 +40,48 @@
     let lastFollowUps = [];   // Track numbered options
     let isLoading = false;
     let searchCount = 0;      // Track searches for auto-reset
+
+    // ── Autocomplete suggestions ──
+    var AUTOCOMPLETE_ITEMS = [
+        // Industries
+        {text: 'pregame refinery', label: 'Refinery / Oil & Gas', type: 'Industry'},
+        {text: 'pregame brewery', label: 'Brewery / Beverage', type: 'Industry'},
+        {text: 'pregame pharmaceutical', label: 'Pharmaceutical', type: 'Industry'},
+        {text: 'pregame municipal water', label: 'Municipal Water', type: 'Industry'},
+        {text: 'pregame power plant', label: 'Power Plant / Turbine', type: 'Industry'},
+        {text: 'pregame chemical processing', label: 'Chemical Processing', type: 'Industry'},
+        {text: 'pregame dairy', label: 'Dairy / CIP', type: 'Industry'},
+        {text: 'pregame wastewater', label: 'Wastewater', type: 'Industry'},
+        // Product Types
+        {text: 'search filter cartridge', label: 'Filter Cartridge', type: 'Product'},
+        {text: 'search filter element', label: 'Filter Element', type: 'Product'},
+        {text: 'search filter bag', label: 'Filter Bag', type: 'Product'},
+        {text: 'search filter housing', label: 'Filter Housing', type: 'Product'},
+        {text: 'search depth sheet', label: 'Depth Sheet', type: 'Product'},
+        {text: 'search membrane', label: 'Membrane', type: 'Product'},
+        {text: 'search o-ring seal', label: 'O-Ring / Seal', type: 'Product'},
+        // Specs
+        {text: 'search 1 micron filter', label: '1 Micron', type: 'Spec'},
+        {text: 'search 5 micron filter', label: '5 Micron', type: 'Spec'},
+        {text: 'search 10 micron filter', label: '10 Micron', type: 'Spec'},
+        {text: 'search 25 micron filter', label: '25 Micron', type: 'Spec'},
+        {text: 'search polypropylene', label: 'Polypropylene', type: 'Media'},
+        {text: 'search PTFE', label: 'PTFE', type: 'Media'},
+        {text: 'search glass fiber', label: 'Glass Fiber', type: 'Media'},
+        {text: 'search stainless steel', label: 'Stainless Steel', type: 'Media'},
+        // Chemicals
+        {text: 'chemical compatibility of sulfuric acid', label: 'Sulfuric Acid', type: 'Chemical'},
+        {text: 'chemical compatibility of acetone', label: 'Acetone', type: 'Chemical'},
+        {text: 'chemical compatibility of sodium hydroxide', label: 'Sodium Hydroxide', type: 'Chemical'},
+        {text: 'chemical compatibility of hydrochloric acid', label: 'Hydrochloric Acid', type: 'Chemical'},
+        // Manufacturers
+        {text: 'manufacturer Pall', label: 'Pall', type: 'Manufacturer'},
+        {text: 'manufacturer Flowserve', label: 'Flowserve', type: 'Manufacturer'},
+        {text: 'manufacturer Graver', label: 'Graver', type: 'Manufacturer'},
+        {text: 'manufacturer Filtrox', label: 'Filtrox', type: 'Manufacturer'},
+        {text: 'manufacturer PPC', label: 'PPC', type: 'Manufacturer'},
+        {text: 'manufacturer Lechler', label: 'Lechler', type: 'Manufacturer'},
+    ];
 
     // ── DOM refs ──
     const chatArea = document.getElementById('chatArea');
@@ -79,6 +122,60 @@
             handleSend();
         }
     };
+
+    // ── Autocomplete ──
+    var acDropdown = null;
+
+    function showAutocomplete(query) {
+        if (!query || query.length < 2) { hideAutocomplete(); return; }
+        var q = query.toLowerCase();
+        var matches = AUTOCOMPLETE_ITEMS.filter(function(item) {
+            return item.label.toLowerCase().includes(q) || item.text.toLowerCase().includes(q);
+        }).slice(0, 6);
+
+        if (matches.length === 0) { hideAutocomplete(); return; }
+
+        if (!acDropdown) {
+            acDropdown = document.createElement('div');
+            acDropdown.id = 'acDropdown';
+            acDropdown.style.cssText = 'position:absolute; bottom:100%; left:0; right:0; background:white; border:1px solid var(--border); border-radius:8px 8px 0 0; box-shadow:0 -4px 12px rgba(0,0,0,0.1); max-height:240px; overflow-y:auto; z-index:500; display:none;';
+            userInput.parentElement.style.position = 'relative';
+            userInput.parentElement.appendChild(acDropdown);
+        }
+
+        var html = '';
+        matches.forEach(function(item, idx) {
+            html += '<div class="ac-item" data-idx="' + idx + '" style="padding:10px 14px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f0f0f0; font-size:13px;" onmousedown="selectAutocomplete(' + idx + ')">';
+            html += '<span style="font-weight:500;">' + item.label + '</span>';
+            html += '<span style="font-size:11px; color:var(--text-light); background:var(--bg); padding:2px 8px; border-radius:10px;">' + item.type + '</span>';
+            html += '</div>';
+        });
+        acDropdown.innerHTML = html;
+        acDropdown.style.display = 'block';
+        acDropdown._matches = matches;
+    }
+
+    function hideAutocomplete() {
+        if (acDropdown) acDropdown.style.display = 'none';
+    }
+
+    window.selectAutocomplete = function(idx) {
+        if (!acDropdown || !acDropdown._matches) return;
+        var item = acDropdown._matches[idx];
+        if (item) {
+            userInput.value = '';
+            hideAutocomplete();
+            sendMessage(item.text);
+        }
+    };
+
+    // Wire autocomplete to input
+    userInput.addEventListener('input', function() {
+        showAutocomplete(userInput.value.trim());
+    });
+    userInput.addEventListener('blur', function() {
+        setTimeout(hideAutocomplete, 200);
+    });
 
     // ── Send handler ──
     window.handleSend = function () {
@@ -369,6 +466,10 @@
             '72,000+ products. Real-time inventory. John\'s 30 years of expertise.</p>' +
             '<button onclick="startSimulate()" style="margin-top:20px; padding:16px 36px; background:linear-gradient(135deg, #003366, #0066CC); color:white; border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 4px 16px rgba(0,102,204,0.3); font-family:inherit;">&#9654;&nbsp; See What AI Can Do</button>' +
             '<p style="margin-top:10px; font-size:12px; color:var(--text-light);">14-step live demo with real data</p>' +
+            '<div style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">' +
+            '<button onclick="openPregamePicker()" style="padding:10px 20px; background:white; color:var(--navy); border:2px solid var(--navy); border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;">&#127919; Meeting Pregame</button>' +
+            '<button onclick="sendMessage(\'help\')" style="padding:10px 20px; background:white; color:var(--text-light); border:1px solid var(--border); border-radius:8px; font-size:14px; cursor:pointer; font-family:inherit;">&#10067; Help</button>' +
+            '</div>' +
             '</div>';
         // Reset state
         searchCount = 0;
@@ -2805,39 +2906,37 @@
     // ── Simulate Mode — In-App Live Demo ──
     // Demo scenarios — grouped as FLOWS (3-4 chained commands per flow, no reset between)
     var SIM_SCENARIOS = [
-        // FLOW 1: Part lookup → chemical check → compare (real workflow)
-        { label: 'Part Lookup', query: '2004355', pause: 6000, flow: 1, autoPin: true,
-          narration: 'Flow 1: Start with a part lookup. Rep has a part number from the customer.' },
-        { label: 'Chemical Check', query: 'chemical compatibility of sulfuric acid', pause: 8000, flow: 1,
-          narration: 'Now check if it handles the customer\'s chemical. A/B/C/D ratings instantly.' },
-        { label: 'Find Alternative', query: 'CMBF1-30NN', pause: 6000, flow: 1,
-          narration: 'Customer wants options. Look up an alternative part to compare.' },
-        { label: 'Compare Both', query: 'compare 2004355 vs CMBF1-30NN', pause: 8000, flow: 1,
-          narration: 'Side-by-side comparison. Specs, price, stock — rep picks the winner.' },
+        // FLOW 1: Full rep workflow — lookup → pin → chemical → compare
+        { label: 'Part Lookup', query: '2004355', pause: 5000, flow: 1, autoPin: true,
+          narration: 'Flow 1: Rep has a part number. Look it up, pin it, explore.' },
+        { label: 'Chemical Check', query: 'chemical compatibility of sulfuric acid', pause: 7000, flow: 1,
+          narration: 'Check chemical compatibility. A/B/C/D ratings for every material.' },
+        { label: 'Find Alternative', query: 'CMBF1-30NN', pause: 5000, flow: 1,
+          narration: 'Customer wants options. Pull up an alternative.' },
+        { label: 'Compare Side-by-Side', query: 'compare 2004355 vs CMBF1-30NN', pause: 7000, flow: 1,
+          narration: 'Side-by-side comparison. Real specs, real prices, real stock.' },
 
-        // FLOW 2: Pregame → search → manufacturer (pre-call prep workflow)
-        { label: 'Pre-Call Prep', query: 'pregame brewery', pause: 8000, flow: 2,
-          narration: 'Flow 2: Rep has a brewery call in 5 minutes. Start with industry prep.' },
-        { label: 'Search Products', query: 'search depth sheet', pause: 6000, flow: 2,
-          narration: 'Prep recommended depth sheets. Search to find what\'s in stock.' },
-        { label: 'Browse Filtrox', query: 'manufacturer Filtrox', pause: 6000, flow: 2,
-          narration: 'Filtrox is the depth sheet brand for brewery. Browse their catalog.' },
+        // FLOW 2: Pre-call prep → products → manufacturer
+        { label: 'Brewery Pregame', query: 'pregame brewery', pause: 7000, flow: 2,
+          narration: 'Flow 2: Rep has a brewery call in 5 minutes. Get prepped.' },
+        { label: 'Find Depth Sheets', query: 'search depth sheet', pause: 5000, flow: 2,
+          narration: 'Prep says depth sheets. Search to find what is in stock.' },
+        { label: 'Browse Filtrox', query: 'manufacturer Filtrox', pause: 5000, flow: 2,
+          narration: 'Filtrox is the depth sheet brand. Browse their full catalog.' },
+        { label: 'Check Acetone', query: 'chemical compatibility of acetone', pause: 7000, flow: 2,
+          narration: 'Customer uses acetone for cleaning. Check compatibility fast.' },
 
-        // FLOW 3: Natural language → expert → chemical (new customer workflow)
-        { label: 'Customer Describes Need', query: 'I need a filter for hydraulic oil at 10 micron 200F in a refinery', pause: 10000, flow: 3, autoPin: true,
-          narration: 'Flow 3: Customer calls with no part number. Just describes what they need.' },
-        { label: 'Ask the Expert', query: 'what filter do I need for glycol dehydration in a gas plant', pause: 10000, flow: 3,
-          narration: 'John\'s 30 years of expertise. Application-specific recommendations with KB references.' },
-        { label: 'Check Acetone', query: 'chemical compatibility of acetone', pause: 8000, flow: 3,
-          narration: 'Customer mentions acetone in their process. Check compatibility instantly.' },
+        // FLOW 3: Natural language → context fills → expert
+        { label: 'Describe the Need', query: 'I need a 10 micron polypropylene filter for hydraulic oil at 200F in a refinery', pause: 8000, flow: 3,
+          narration: 'Flow 3: Customer describes what they need. Watch the context card fill.' },
+        { label: 'Expert Advice', query: 'what filter for glycol dehydration in a gas plant', pause: 8000, flow: 3,
+          narration: 'Ask the expert. 30 years of application knowledge, KB-backed.' },
 
-        // FLOW 4: Manufacturer → search → escalation (edge cases)
-        { label: 'Browse PPC', query: 'manufacturer PPC', pause: 6000, flow: 4,
-          narration: 'Flow 4: Rep needs to find a specific brand. Browse PPC\'s full catalog.' },
-        { label: 'Spec Search', query: 'search polypropylene cartridge', pause: 6000, flow: 4,
-          narration: 'Narrow by material. Find every PP cartridge in stock.' },
-        { label: 'Safety Escalation', query: 'I need a filter for 500F hydrogen service', pause: 6000, flow: 4,
-          narration: 'Safety guardrails. Dangerous conditions auto-escalate to engineering. No bad recommendations.' },
+        // FLOW 4: Safety + manufacturer browse
+        { label: 'Browse PPC', query: 'manufacturer PPC', pause: 5000, flow: 4,
+          narration: 'Flow 4: Browse a major manufacturer. See their full product line.' },
+        { label: 'Safety Check', query: 'I need a filter for 500F hydrogen service', pause: 5000, flow: 4,
+          narration: 'Safety guardrails. Dangerous conditions auto-escalate. No bad recommendations.' },
     ];
 
     var simState = { running: false, paused: false, step: 0, abortFlag: false };
