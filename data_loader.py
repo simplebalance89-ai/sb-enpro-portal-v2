@@ -53,12 +53,18 @@ def load_chemicals() -> pd.DataFrame:
     url = _blob_url("chemical_crosswalk.csv")
     logger.info("Loading chemical crosswalk from Azure Blob...")
     try:
-        df = pd.read_csv(url, dtype=str).fillna("")
+        df = pd.read_csv(url, dtype=str, encoding="latin-1").fillna("")
         logger.info(f"Chemical crosswalk loaded: {len(df)} rows")
         return df
     except Exception as e:
-        logger.error(f"Failed to load chemical crosswalk: {e}")
-        return pd.DataFrame()
+        logger.error(f"Failed to load chemical crosswalk (trying fallback): {e}")
+        try:
+            df = pd.read_csv(url, dtype=str, encoding="utf-8", errors="replace").fillna("")
+            logger.info(f"Chemical crosswalk loaded (fallback): {len(df)} rows")
+            return df
+        except Exception as e2:
+            logger.error(f"Chemical crosswalk fallback also failed: {e2}")
+            return pd.DataFrame()
 
 
 def merge_data(static: pd.DataFrame, inventory: pd.DataFrame) -> pd.DataFrame:
