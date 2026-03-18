@@ -272,25 +272,33 @@ async def suggest(q: str = "", mode: str = "exact", in_stock: str = "all"):
 
 @app.get("/api/manufacturers/list")
 async def manufacturers_list():
-    """Return deduplicated manufacturer list. Normalizes Inc/Corp/LLC variants."""
+    """Return deduplicated manufacturer list. Prefers Product_Group_Description (clean P21 codes)."""
     if not state.data_loaded or state.df.empty:
         return {"manufacturers": []}
 
-    col = "Final_Manufacturer" if "Final_Manufacturer" in state.df.columns else "Manufacturer"
+    import re as _re
+
+    # Prefer Product_Group_Description (clean P21 groups) over Final_Manufacturer (dirty)
+    use_pg = "Product_Group_Description" in state.df.columns
+    col = "Product_Group_Description" if use_pg else (
+        "Final_Manufacturer" if "Final_Manufacturer" in state.df.columns else "Manufacturer"
+    )
     if col not in state.df.columns:
         return {"manufacturers": []}
-
-    import re as _re
 
     raw = (
         state.df[col]
         .dropna()
         .astype(str)
         .str.strip()
-        .loc[lambda s: s != ""]
+        .loc[lambda s: (s != "") & (s != "0")]
         .unique()
         .tolist()
     )
+
+    # Filter out garbage entries
+    do_not_use = _re.compile(r'\*.*DO NOT USE.*\*|DO NOT USE|Default Vendor', _re.IGNORECASE)
+    raw = [m for m in raw if not do_not_use.search(m) and len(m) > 1]
 
     # Deduplicate: normalize by stripping Inc/Corp/LLC/Ltd/Co suffixes + punctuation
     def _norm_mfr(name):
