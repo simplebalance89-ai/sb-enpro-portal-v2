@@ -266,7 +266,7 @@ async def suggest(q: str = "", mode: str = "exact", in_stock: str = "all"):
 
 @app.get("/api/manufacturers/list")
 async def manufacturers_list():
-    """Return list of unique manufacturers for dropdown. Pandas only, $0 cost."""
+    """Return deduplicated manufacturer list. Normalizes Inc/Corp/LLC variants."""
     if not state.data_loaded or state.df.empty:
         return {"manufacturers": []}
 
@@ -274,7 +274,9 @@ async def manufacturers_list():
     if col not in state.df.columns:
         return {"manufacturers": []}
 
-    manufacturers = sorted(
+    import re as _re
+
+    raw = (
         state.df[col]
         .dropna()
         .astype(str)
@@ -283,7 +285,23 @@ async def manufacturers_list():
         .unique()
         .tolist()
     )
-    return {"manufacturers": manufacturers}
+
+    # Deduplicate: normalize by stripping Inc/Corp/LLC/Ltd/Co suffixes + punctuation
+    def _norm_mfr(name):
+        n = name.lower().strip()
+        n = _re.sub(r'[,.\s]+(inc|corp|corporation|llc|ltd|co|incorporated)\.?$', '', n)
+        n = _re.sub(r'\s+', ' ', n).strip()
+        return n
+
+    # Group by normalized name, keep the longest (most complete) variant
+    groups = {}
+    for m in raw:
+        key = _norm_mfr(m)
+        if key not in groups or len(m) > len(groups[key]):
+            groups[key] = m
+
+    manufacturers = sorted(groups.values(), key=str.lower)
+    return {"manufacturers": manufacturers, "count": len(manufacturers), "raw_count": len(raw)}
 
 
 @app.get("/api/product-types/list")
