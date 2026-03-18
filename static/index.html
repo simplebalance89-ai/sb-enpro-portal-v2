@@ -843,6 +843,42 @@
         }
         .card-action-btn:last-child { border-right: none; }
         .card-action-btn:hover { background: var(--navy); color: white; }
+        /* ── Admin Stats Footer ── */
+        .admin-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--navy);
+            color: white;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding: 6px 16px;
+            font-size: 11px;
+            z-index: 50;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
+        }
+        .admin-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .admin-label {
+            color: rgba(255,255,255,0.6);
+            font-weight: 400;
+        }
+        .admin-value {
+            font-weight: 700;
+            color: white;
+        }
+        .admin-value.error { color: #ff6b6b; }
+        .admin-value.good { color: #51cf66; }
+        @media (max-width: 480px) {
+            .admin-footer { gap: 10px; padding: 4px 10px; font-size: 10px; }
+        }
+        /* Push app-shell up so footer doesn't overlap input */
+        .app-shell { padding-bottom: 28px; }
     </style>
 </head>
 <body>
@@ -923,6 +959,30 @@
 </div>
 
 </div><!-- /app-shell -->
+
+<!-- Admin Stats Footer -->
+<div class="admin-footer" id="adminFooter">
+    <div class="admin-stat">
+        <span class="admin-label">Queries</span>
+        <span class="admin-value" id="statQueries">0</span>
+    </div>
+    <div class="admin-stat">
+        <span class="admin-label">Cost</span>
+        <span class="admin-value" id="statCost">$0.00</span>
+    </div>
+    <div class="admin-stat">
+        <span class="admin-label">Avg Latency</span>
+        <span class="admin-value" id="statLatency">0ms</span>
+    </div>
+    <div class="admin-stat">
+        <span class="admin-label">Errors</span>
+        <span class="admin-value" id="statErrors">0</span>
+    </div>
+    <div class="admin-stat">
+        <span class="admin-label">Reports</span>
+        <span class="admin-value" id="statReports">0</span>
+    </div>
+</div>
 
 <!-- Modal Overlay -->
 <div class="modal-overlay" id="modalOverlay" onclick="hideModal(event)">

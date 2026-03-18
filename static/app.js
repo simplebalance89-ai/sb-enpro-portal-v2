@@ -87,6 +87,7 @@
         clearWelcome();
         appendMessage('user', text);
         setLoading(true);
+        var queryStart = Date.now();
 
         try {
             const res = await fetch(API_BASE + '/api/chat', {
@@ -96,9 +97,11 @@
             });
             const data = await res.json();
             handleResponse(data);
+            trackQuery(queryStart, data);
         } catch (err) {
             appendMessage('bot', 'Connection error. Please check your network and try again.');
             console.error('Chat error:', err);
+            trackError();
         } finally {
             setLoading(false);
         }
@@ -479,6 +482,7 @@
         html += '<div class="card-actions">';
         html += '<button class="card-action-btn" onclick="printCard(this)">&#128424; Print</button>';
         html += '<button class="card-action-btn" onclick="copyCard(this)">&#128203; Copy</button>';
+        html += '<button class="card-action-btn" onclick="reportCard(this)" style="color:var(--stock-red);">&#9873; Report</button>';
         html += '</div>';
 
         // Footer — click to copy, no email app
@@ -751,6 +755,8 @@
     var origNewChat = window.newChat;
     window.newChat = function () {
         quoteState = { part: null, price: false, chemical: false, compare: false, manufacturer: false };
+        adminStats = { queries: 0, cost: 0, totalLatency: 0, errors: 0, reports: 0 };
+        updateAdminFooter();
         var tracker = document.getElementById('quoteTracker');
         if (tracker) tracker.remove();
         origNewChat();
@@ -1198,6 +1204,86 @@
         text += 'EnPro Inc. | service@enproinc.com | 1 (800) 323-2416\n';
 
         copyToClipboard(text, btn);
+    };
+
+    // ── Admin Stats Tracking ──
+    var adminStats = {
+        queries: 0,
+        cost: 0,
+        totalLatency: 0,
+        errors: 0,
+        reports: 0
+    };
+
+    function trackQuery(startTime, data) {
+        adminStats.queries++;
+        var latency = Date.now() - startTime;
+        adminStats.totalLatency += latency;
+
+        // Parse cost from response
+        var costStr = (data && data.cost) ? data.cost : '$0';
+        var costVal = parseFloat(costStr.replace(/[^0-9.]/g, '')) || 0;
+        adminStats.cost += costVal;
+
+        updateAdminFooter();
+    }
+
+    function trackError() {
+        adminStats.errors++;
+        updateAdminFooter();
+    }
+
+    function updateAdminFooter() {
+        var el = function(id) { return document.getElementById(id); };
+        el('statQueries').textContent = adminStats.queries;
+        el('statCost').textContent = '$' + adminStats.cost.toFixed(2);
+        var avg = adminStats.queries > 0 ? Math.round(adminStats.totalLatency / adminStats.queries) : 0;
+        el('statLatency').textContent = avg + 'ms';
+        el('statLatency').className = 'admin-value ' + (avg < 2000 ? 'good' : avg < 5000 ? '' : 'error');
+        el('statErrors').textContent = adminStats.errors;
+        el('statErrors').className = 'admin-value ' + (adminStats.errors > 0 ? 'error' : 'good');
+        el('statReports').textContent = adminStats.reports;
+        el('statReports').className = 'admin-value ' + (adminStats.reports > 0 ? 'error' : '');
+    }
+
+    // Report card to Peter
+    window.reportCard = function (btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+
+        var header = card.querySelector('.product-card-header');
+        var partNumber = header ? header.textContent.replace('Part Number: ', '').trim() : 'Unknown';
+
+        // Visual feedback
+        btn.textContent = '\u2713 Reported';
+        btn.style.pointerEvents = 'none';
+        btn.style.color = 'var(--stock-green)';
+
+        // Store the report
+        adminStats.reports++;
+        updateAdminFooter();
+
+        // Build report data
+        var reportData = {
+            part_number: partNumber,
+            timestamp: new Date().toISOString(),
+            session_id: sessionId,
+            card_html: card.outerHTML
+        };
+
+        // Save to localStorage for now (until backend endpoint exists)
+        var reports = JSON.parse(localStorage.getItem('enpro_reports') || '[]');
+        reports.push(reportData);
+        localStorage.setItem('enpro_reports', JSON.stringify(reports));
+
+        // Show toast
+        var toast = document.createElement('div');
+        toast.className = 'copy-toast';
+        toast.textContent = 'Reported: ' + partNumber + ' \u2014 flagged for Peter';
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.remove(); }, 2000);
+
+        console.log('REPORT:', reportData);
     };
 
     // ── Expose for inline onclick ──
