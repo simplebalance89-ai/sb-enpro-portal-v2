@@ -146,6 +146,38 @@ _DESCRIPTION_WORDS = {
 }
 
 
+def _parse_spec_query(query: str) -> Optional[dict]:
+    """Parse spec values from search queries like '10 micron filter element' or '200F PTFE'."""
+    result = {}
+    remaining = query.lower()
+
+    # Micron
+    micron_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:micron|μm|um)\b', remaining)
+    if micron_match:
+        result["micron"] = float(micron_match.group(1))
+        remaining = remaining[:micron_match.start()] + remaining[micron_match.end():]
+
+    # Temperature
+    temp_match = re.search(r'(\d{2,})\s*°?\s*(?:f|fahrenheit)\b', remaining)
+    if temp_match:
+        result["temp"] = float(temp_match.group(1))
+        remaining = remaining[:temp_match.start()] + remaining[temp_match.end():]
+
+    # PSI
+    psi_match = re.search(r'(\d{2,})\s*(?:psi)\b', remaining)
+    if psi_match:
+        result["psi"] = float(psi_match.group(1))
+        remaining = remaining[:psi_match.start()] + remaining[psi_match.end():]
+
+    if not result:
+        return None
+
+    # Remaining words (non-spec text like "filter element", "cartridge")
+    words = [w for w in remaining.split() if w and len(w) > 2 and w not in ("the", "for", "and", "with", "rated")]
+    result["remaining_words"] = words
+    return result
+
+
 def _looks_like_part_number(query: str) -> bool:
     """Heuristic: part numbers contain digits mixed with letters/dashes.
     Excludes queries with common description/spec words."""
@@ -215,8 +247,11 @@ def _search_cascade(df: pd.DataFrame, raw_query: str, norm_query: str) -> pd.Dat
     # Phase 2: Text columns (multi-word AND)
     text_cols = [
         "Description",
+        "Extended_Description",
         "Product_Type",
         "Final_Manufacturer",
+        "Media",
+        "Efficiency",
     ]
     words = raw_query.lower().split()
     if not words:
@@ -233,6 +268,38 @@ def _search_cascade(df: pd.DataFrame, raw_query: str, norm_query: str) -> pd.Dat
         matches = df[mask]
         if not matches.empty:
             return matches
+
+    # Phase 2b: Spec-aware search (micron, temp, PSI as numbers)
+    spec_match = _parse_spec_query(raw_query)
+    if spec_match:
+        mask = pd.Series([True] * len(df), index=df.index)
+        has_filter = False
+        if spec_match.get("micron") and "Micron" in df.columns:
+            micron_col = pd.to_numeric(df["Micron"], errors="coerce").fillna(0)
+            mask = mask & (micron_col == spec_match["micron"])
+            has_filter = True
+        if spec_match.get("temp") and "Max_Temp_F" in df.columns:
+            temp_col = pd.to_numeric(df["Max_Temp_F"], errors="coerce").fillna(0)
+            mask = mask & (temp_col >= spec_match["temp"])
+            has_filter = True
+        if spec_match.get("psi") and "Max_PSI" in df.columns:
+            psi_col = pd.to_numeric(df["Max_PSI"], errors="coerce").fillna(0)
+            mask = mask & (psi_col >= spec_match["psi"])
+            has_filter = True
+        # Also filter by text words (e.g., "filter element", "cartridge")
+        non_spec_words = spec_match.get("remaining_words", [])
+        if non_spec_words and has_filter:
+            for col in text_cols:
+                if col not in df.columns:
+                    continue
+                col_lower = df[col].astype(str).str.lower()
+                for word in non_spec_words:
+                    mask = mask & col_lower.str.contains(re.escape(word), na=False)
+                break  # Only need to match in one text column
+        if has_filter:
+            matches = df[mask]
+            if not matches.empty:
+                return matches
 
     # Phase 3: Cross-column multi-word (any word in any searchable column)
     all_searchable = code_cols + text_cols

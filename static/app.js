@@ -1706,6 +1706,48 @@
         }
     })();
 
+    // ── Contextual Nav — fade inactive buttons on flow ──
+    window.activateFlow = function (flowName) {
+        var btns = document.querySelectorAll('.qa-btn');
+        btns.forEach(function (btn) {
+            var btnText = btn.textContent.trim().toLowerCase();
+            if (btnText.includes(flowName.toLowerCase())) {
+                btn.classList.add('active-flow');
+            } else {
+                btn.classList.add('faded');
+            }
+        });
+        document.getElementById('exitFlowBtn').classList.add('visible');
+    };
+
+    window.exitFlow = function () {
+        var btns = document.querySelectorAll('.qa-btn');
+        btns.forEach(function (btn) {
+            btn.classList.remove('faded', 'active-flow');
+        });
+        document.getElementById('exitFlowBtn').classList.remove('visible');
+    };
+
+    // Hook into showModal to activate flow
+    var origShowModal = window.showModal;
+    window.showModal = function (type) {
+        var flowNames = {
+            'lookup': 'Lookup', 'chemical': 'Chemical', 'search': 'Search',
+            'compare': 'Compare', 'manufacturer': 'Manufacturer',
+            'product_type': 'Product Type', 'industry': 'Industry',
+            'price': 'Price'
+        };
+        if (flowNames[type]) activateFlow(flowNames[type]);
+        origShowModal(type);
+    };
+
+    // Exit flow on new chat
+    var origNewChat2 = window.newChat;
+    window.newChat = function () {
+        exitFlow();
+        origNewChat2();
+    };
+
     // ── Pregame dropdown handler ──
     document.getElementById('pregameSelect').addEventListener('change', function () {
         if (this.value) {

@@ -670,7 +670,12 @@
             .product-field { flex-direction: column; gap: 2px; }
             .product-field-label { min-width: unset; }
             .input-area { padding: 10px 12px; }
-            .quick-actions { padding: 8px 12px; }
+            .quick-actions { padding: 6px 8px; gap: 4px; }
+            .qa-btn { font-size: 11px; padding: 5px 8px; }
+            .qa-icon { font-size: 12px; }
+            .msg-bubble { font-size: 13px; max-width: 95%; }
+            .product-card { font-size: 12px; }
+            .product-card-header { font-size: 13px; padding: 10px 12px; }
         }
 
         /* ── Typeahead Dropdown ── */
@@ -1229,6 +1234,37 @@
             }
         }
 
+        /* ── Contextual Nav — fade inactive buttons ── */
+        .qa-btn.faded {
+            opacity: 0;
+            max-height: 0;
+            padding: 0;
+            margin: 0;
+            border: none;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .qa-btn.active-flow {
+            background: var(--navy);
+            color: white;
+            border-color: var(--navy);
+        }
+        .qa-exit-flow {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 10px;
+            background: var(--stock-red);
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .qa-exit-flow.visible { display: inline-flex; }
+
         /* ── Session History Sidebar ── */
         .history-sidebar {
             position: fixed;
@@ -1615,6 +1651,7 @@
     <button class="qa-btn" onclick="openQuoteModal()">
         <span class="qa-icon">&#128221;</span> Build Quote
     </button>
+    <button class="qa-exit-flow" id="exitFlowBtn" onclick="exitFlow()">&#10005; Back</button>
 </div>
 
 <!-- Chat Area -->
