@@ -622,6 +622,83 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
     return {"response": "Search complete.", "intent": intent, "cost": "$0"}
 
 
+def _try_chemical_fast_path(
+    message: str, df: pd.DataFrame, chemicals_df: pd.DataFrame
+) -> Optional[dict]:
+    """
+    If user asked for chemical compatibility on a specific PART NUMBER (not a chemical),
+    look up the part's media and return a fast scripted response without GPT.
+    """
+    msg_lower = message.lower()
+
+    # Detect "chemical compatibility for [PART]" pattern
+    part_number = None
+    for prefix in [
+        "chemical compatibility for ",
+        "chemical check for ",
+        "chemical check ",
+        "chemical compatibility ",
+    ]:
+        if msg_lower.startswith(prefix):
+            candidate = message[len(prefix):].strip()
+            if candidate:
+                # Try to look up as a part number
+                product = lookup_part(df, candidate)
+                if product:
+                    part_number = candidate
+                    break
+
+    if not part_number or not product:
+        return None  # Not a part number — let GPT handle (it's a chemical name)
+
+    # Got a product — check its media
+    media = product.get("Media", "")
+    pn = product.get("Part_Number", part_number)
+
+    # Check if media has specific compatibility data in the crosswalk
+    compat_found = False
+    if media and media.lower() not in ("", "various", "0"):
+        if not chemicals_df.empty:
+            media_lower = media.lower()
+            for _, row in chemicals_df.iterrows():
+                row_text = " ".join(str(v).lower() for v in row.values)
+                if media_lower in row_text:
+                    compat_found = True
+                    break
+
+    if compat_found:
+        return None  # Has crosswalk data — let GPT give the full A/B/C/D breakdown
+
+    # No specific compatibility data — return fast scripted response
+    lines = [f"**Chemical Compatibility — {pn}** [V25 FILTERS]\n"]
+    n = 1
+    lines.append(f"{n}. **Part Number:** {pn}")
+    n += 1
+    if media and media.lower() not in ("various", "0", ""):
+        lines.append(f"{n}. **Media:** {media}")
+        n += 1
+    else:
+        lines.append(f"{n}. **Media:** Not specified in database")
+        n += 1
+
+    lines.append(
+        f"{n}. No specific chemical compatibility data on file for this part."
+    )
+    n += 1
+    lines.append(
+        f"{n}. Contact EnPro for chemical compatibility review and SDS submission."
+    )
+    n += 1
+    lines.append(f"\nContact: service@enproinc.com | 1 (800) 323-2416")
+
+    return {
+        "response": "\n".join(lines),
+        "intent": "chemical",
+        "cost": "$0",
+        "products": [product],
+    }
+
+
 async def _handle_gpt(
     message: str,
     intent: str,
@@ -631,6 +708,13 @@ async def _handle_gpt(
     advisory: Optional[str],
 ) -> dict:
     """Handle intents that require GPT-4.1 reasoning."""
+
+    # Fast-path: chemical check on a specific part number — skip GPT
+    if intent == "chemical":
+        chem_fast = _try_chemical_fast_path(message, df, chemicals_df)
+        if chem_fast:
+            return chem_fast
+
     # Build context based on intent
     context_parts = []
 
