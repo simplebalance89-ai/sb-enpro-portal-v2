@@ -491,3 +491,87 @@ def find_similar_products(
             })
 
     return {"source": source, "categories": categories}
+
+
+# ---------------------------------------------------------------------------
+# Chemical cross-reference by part number
+# ---------------------------------------------------------------------------
+def lookup_part_with_chemicals(
+    df: pd.DataFrame,
+    chemicals_df: pd.DataFrame,
+    part_number: str,
+    chemical: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Cross-reference a part's materials against the chemical crosswalk.
+    If a chemical is specified, returns compatibility for that chemical with this part's materials.
+    If no chemical, returns the part's materials and prompts for a chemical.
+    """
+    # Look up the part
+    row = _lookup_part_row(df, part_number)
+    if row is None:
+        return None
+
+    product = format_product(row)
+    pn = product.get("Part_Number", part_number)
+
+    # Extract materials from part data
+    media = str(row.get("Media", "")).strip()
+    description = str(row.get("Description", "")).strip()
+    ext_desc = str(row.get("Extended_Description", "")).strip()
+    full_text = f"{media} {description} {ext_desc}".lower()
+
+    # Detect materials mentioned in part data
+    known_materials = {
+        "polypropylene": ["polypropylene", "pp ", "pp,", "meltblown pp"],
+        "glass fiber": ["glass fiber", "glass fibre", "fiberglass", "borosilicate"],
+        "ptfe": ["ptfe", "teflon"],
+        "pvdf": ["pvdf", "kynar"],
+        "nylon": ["nylon", "polyamide"],
+        "stainless steel": ["stainless", "316ss", "316 ss", "304ss"],
+        "polysulfone": ["polysulfone", "pes"],
+        "cellulose": ["cellulose", "paper"],
+        "polyester": ["polyester"],
+        "cotton": ["cotton"],
+        "viton": ["viton", "fkm", "fluoroelastomer"],
+        "epdm": ["epdm"],
+        "buna-n": ["buna", "nitrile", "nbr"],
+        "silicone": ["silicone"],
+    }
+
+    detected_materials = []
+    for material, keywords in known_materials.items():
+        for kw in keywords:
+            if kw in full_text:
+                detected_materials.append(material)
+                break
+
+    # If media field has a clean value, add it
+    if media and media.lower() not in ("", "various", "0", "nan"):
+        if media.lower() not in [m.lower() for m in detected_materials]:
+            detected_materials.insert(0, media)
+
+    result = {
+        "part": product,
+        "part_number": pn,
+        "detected_materials": detected_materials,
+        "media": media,
+    }
+
+    # If a chemical is specified, cross-reference against crosswalk
+    if chemical and not chemicals_df.empty:
+        chemical_lower = chemical.lower().strip()
+        compat_matches = []
+
+        for _, crow in chemicals_df.iterrows():
+            crow_text = " ".join(str(v).lower() for v in crow.values)
+            if any(word in crow_text for word in chemical_lower.split() if len(word) > 3):
+                compat_matches.append(crow.to_dict())
+                if len(compat_matches) >= 5:
+                    break
+
+        result["chemical"] = chemical
+        result["crosswalk_matches"] = compat_matches
+        result["has_crosswalk_data"] = len(compat_matches) > 0
+
+    return result

@@ -696,7 +696,11 @@ def _try_chemical_fast_path(
     if compat_found:
         return None  # Has crosswalk data — let GPT give the full A/B/C/D breakdown
 
-    # No specific compatibility data — return fast scripted response
+    # No specific compatibility data — return fast scripted response with detected materials
+    from search import lookup_part_with_chemicals
+    cross_ref = lookup_part_with_chemicals(df, chemicals_df, part_number)
+    detected_materials = cross_ref.get("detected_materials", []) if cross_ref else []
+
     lines = [f"**Chemical Compatibility — {pn}** [V25 FILTERS]\n"]
     n = 1
     lines.append(f"{n}. **Part Number:** {pn}")
@@ -708,10 +712,24 @@ def _try_chemical_fast_path(
         lines.append(f"{n}. **Media:** Not specified in database")
         n += 1
 
-    lines.append(
-        f"{n}. No specific chemical compatibility data on file for this part."
-    )
-    n += 1
+    if detected_materials:
+        lines.append(f"{n}. **Detected Materials:** {', '.join(detected_materials)}")
+        n += 1
+        lines.append(
+            f"{n}. No specific chemical compatibility data on file for this part's materials."
+        )
+        n += 1
+        lines.append(
+            f"{n}. For A/B/C/D compatibility ratings, ask: "
+            f"'chemical compatibility of [chemical name]'"
+        )
+        n += 1
+    else:
+        lines.append(
+            f"{n}. No specific chemical compatibility data on file for this part."
+        )
+        n += 1
+
     lines.append(
         f"{n}. Contact EnPro for chemical compatibility review and SDS submission."
     )

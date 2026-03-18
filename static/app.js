@@ -5,6 +5,13 @@
 (function () {
     'use strict';
 
+    // Inject clickable card link styles
+    (function() {
+        var style = document.createElement('style');
+        style.textContent = '.card-link { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dashed var(--accent); transition: color 0.15s; } .card-link:hover { color: var(--navy); border-bottom-color: var(--navy); }';
+        document.head.appendChild(style);
+    })();
+
     // ── Config ──
     const API_BASE = window.ENPRO_API_BASE || '';
     const SESSION_KEY = 'enpro_fm_session';
@@ -256,6 +263,21 @@
             }
         }
 
+        // Pregame/application intent — parse into prep card
+        if ((data.intent === 'pregame' || data.intent === 'application') && data.response && !data.pregame) {
+            var pregameCard = parsePregameResponse(data.response);
+            if (pregameCard) {
+                appendCard(renderPregameCard(pregameCard));
+                if (data.products && data.products.length > 0) {
+                    await renderProductsBatched(data.products);
+                }
+                scrollToBottom();
+                searchCount++;
+                checkAutoReset();
+                return;
+            }
+        }
+
         // Handle different response shapes
         if (data.products && Array.isArray(data.products) && data.products.length > 0) {
             if (data.text || data.response) appendMessage('bot', formatMarkdown(data.text || data.response));
@@ -359,7 +381,7 @@
 
             html += '<div class="consol-row" onclick="expandConsolRow(\'' + esc(pn) + '\', this)" style="cursor:pointer;">';
             html += '<div class="consol-row-main">';
-            html += '<div class="consol-pn">' + esc(pn) + '</div>';
+            html += '<div class="consol-pn"><a class="card-link" onclick="event.stopPropagation(); sendMessage(\'lookup ' + esc(pn).replace(/'/g, "\\'") + '\')">' + esc(pn) + '</a></div>';
             html += '<div class="consol-desc">' + esc(desc) + '</div>';
             html += '</div>';
             html += '<div class="consol-row-meta">';
@@ -410,13 +432,13 @@
             ['Manufacturer', mfg]
         ];
 
-        // Specs line
+        // Specs line (micron is clickable)
         var specs = [];
-        if (micron && micron !== '0' && micron !== '0.0') specs.push(micron + ' Micron');
-        if (media) specs.push(media);
-        if (tempF && tempF !== '0' && tempF !== '0.0') specs.push(tempF + '°F');
-        if (psi && psi !== '0' && psi !== '0.0') specs.push(psi + ' PSI');
-        if (flow) specs.push(flow);
+        if (micron && micron !== '0' && micron !== '0.0') specs.push('<a class="card-link" onclick="sendMessage(\'search ' + esc(String(micron)) + ' micron filters\')">' + esc(String(micron)) + ' Micron</a>');
+        if (media) specs.push(esc(String(media)));
+        if (tempF && tempF !== '0' && tempF !== '0.0') specs.push(esc(String(tempF)) + '°F');
+        if (psi && psi !== '0' && psi !== '0.0') specs.push(esc(String(psi)) + ' PSI');
+        if (flow) specs.push(esc(String(flow)));
         if (specs.length) fields.push(['Specs', specs.join(' | ')]);
 
         if (eff) fields.push(['Efficiency', eff]);
@@ -425,7 +447,17 @@
             if (f[1]) {
                 html += '<div class="product-field">';
                 html += '<div class="product-field-label">' + esc(f[0]) + '</div>';
-                html += '<div class="product-field-value">' + esc(String(f[1])) + '</div>';
+                var val = String(f[1]);
+                if (f[0] === 'Manufacturer') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'manufacturer ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Product Type') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'search ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Specs') {
+                    // Specs already contain HTML links for micron
+                    html += '<div class="product-field-value">' + val + '</div>';
+                } else {
+                    html += '<div class="product-field-value">' + esc(val) + '</div>';
+                }
                 html += '</div>';
             }
         });
@@ -558,6 +590,103 @@
             extras: extras
         };
     }
+
+    // ── Parse pregame GPT response into structured data ──
+    function parsePregameResponse(text) {
+        if (!text || text.length < 50) return null;
+
+        var industry = '';
+        var concerns = [];
+        var product = '';
+        var question = '';
+        var caseStudy = '';
+
+        // Extract industry
+        var indMatch = text.match(/(?:Industry|Application|Sector)[:\s]*\**([^*\n]+)/i);
+        if (indMatch) industry = indMatch[1].trim();
+
+        // Extract key concerns (numbered items after "care about" or "concerns" or "key")
+        var concernMatch = text.match(/(?:care about|concerns?|key points?|priorities)[:\s]*\n?((?:\d+\..*\n?)+)/i);
+        if (concernMatch) {
+            concerns = concernMatch[1].split(/\n/).filter(function(l) { return l.trim().match(/^\d/); }).map(function(l) {
+                return l.replace(/^\d+\.\s*/, '').replace(/\*\*/g, '').trim();
+            }).filter(function(c) { return c.length > 0; });
+        }
+
+        // If no structured concerns, try to extract numbered items
+        if (concerns.length === 0) {
+            var numItems = text.match(/\d+\.\s+\*?\*?([^\n*]+)/g);
+            if (numItems && numItems.length >= 2) {
+                concerns = numItems.slice(0, 5).map(function(item) {
+                    return item.replace(/^\d+\.\s*\*?\*?/, '').replace(/\*\*/g, '').trim();
+                });
+            }
+        }
+
+        // Extract recommended product
+        var prodMatch = text.match(/(?:#1|recommended|primary|product)[:\s]*\**([^*\n]+)/i);
+        if (prodMatch) product = prodMatch[1].trim();
+
+        // Extract closing question
+        var qMatch = text.match(/(?:question|ask|opener|opening)[:\s]*[""\u201c]?([^""\u201d\n]+)/i);
+        if (qMatch) question = qMatch[1].trim().replace(/["']/g, '');
+
+        // Extract case study
+        var caseMatch = text.match(/(?:case study|example|reference)[:\s]*\**([^*\n]+)/i);
+        if (caseMatch) caseStudy = caseMatch[1].trim();
+
+        // If we couldn't parse enough structure, return null — let it render as text
+        if (concerns.length < 2 && !product && !question) return null;
+
+        return {
+            industry: industry,
+            concerns: concerns,
+            product: product,
+            question: question,
+            caseStudy: caseStudy,
+            fullText: text
+        };
+    }
+
+    // ── Render pregame prep card ──
+    window.renderPregameCard = function (data) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">Pre-Call Prep' + (data.industry ? ': ' + esc(data.industry) : '') + '</div>';
+        html += '<div class="chemical-card-body">';
+
+        if (data.concerns && data.concerns.length > 0) {
+            html += '<div style="margin-bottom:10px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Key Concerns</div>';
+            data.concerns.forEach(function (c, i) {
+                html += '<div style="padding:4px 0; font-size:13px;">' + (i+1) + '. ' + esc(c) + '</div>';
+            });
+            html += '</div>';
+        }
+
+        if (data.product) {
+            html += '<div style="margin-bottom:10px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Recommended Product</div>';
+            html += '<div style="font-size:14px; font-weight:600; color:var(--navy);">' + esc(data.product) + '</div>';
+            html += '</div>';
+        }
+
+        if (data.question) {
+            html += '<div style="margin-bottom:10px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent);">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question</div>';
+            html += '<div style="font-size:14px; font-style:italic; color:var(--text);">\u201c' + esc(data.question) + '\u201d</div>';
+            html += '</div>';
+        }
+
+        if (data.caseStudy) {
+            html += '<div style="margin-bottom:8px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Case Study</div>';
+            html += '<div style="font-size:13px; color:var(--text);">' + esc(data.caseStudy) + '</div>';
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
 
     // ── Render chemical card ──
     window.renderChemicalCard = function (data) {
