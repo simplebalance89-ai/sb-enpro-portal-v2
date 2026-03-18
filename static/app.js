@@ -395,8 +395,8 @@
             }
         }
 
-        // Auto-capture specs from returned products into context card
-        if (data.products && data.products.length > 0) {
+        // Only capture specs into context from SINGLE product lookups, not multi-result searches
+        if (data.products && data.products.length === 1) {
             updateContextFromProducts(data.products);
         }
 
@@ -496,34 +496,49 @@
 
     // Consolidated card — one card, multiple products as rows
     window.renderConsolidatedCard = function (products) {
+        var SHOW_LIMIT = 5;
+        var cardId = 'consol_' + Date.now();
         var html = '<div class="product-card">';
-        html += '<div class="product-card-header">' + products.length + ' Results Found [V25 FILTERS]</div>';
+        html += '<div class="product-card-header">' + products.length + ' Results Found</div>';
         html += '<div class="product-card-body" style="padding:0;">';
 
         products.forEach(function (p, idx) {
             var pn = p.Part_Number || p.part_number || '?';
             var desc = p.Description || p.description || '';
-            var mfr = p.Final_Manufacturer || p.Manufacturer || p.manufacturer || '';
+            var mfr = p.Final_Manufacturer || p.Manufacturer_Display || p.Manufacturer || p.manufacturer || '';
             var price = p.Price || p.price || '';
             var stock = p.Total_Stock || p.total_stock || 0;
-            var priceDisplay = (price && price !== 'Contact EnPro for pricing') ? price : '[NO PRICE]';
-            var stockDisplay = stock > 0 ? '<span style="color:var(--stock-green);font-weight:700;">' + stock + ' in stock</span>' : '<span style="color:var(--stock-red);">Out of stock</span>';
+            var priceDisplay = (price && price !== 'Contact EnPro for pricing') ? price : '';
+            var stockDisplay = stock > 0 ? '<span style="color:var(--stock-green);font-weight:700;">' + stock + '</span>' : '<span style="color:var(--stock-red);">0</span>';
+            var hiddenStyle = idx >= SHOW_LIMIT ? ' style="display:none;" data-extra="' + cardId + '"' : '';
 
-            html += '<div class="consol-row" onclick="expandConsolRow(\'' + esc(pn) + '\', this)" style="cursor:pointer;">';
+            html += '<div class="consol-row" onclick="expandConsolRow(\'' + esc(pn) + '\', this)"' + hiddenStyle + '>';
             html += '<div class="consol-row-main">';
             html += '<div class="consol-pn"><a class="card-link" onclick="event.stopPropagation(); sendMessage(\'lookup ' + esc(pn).replace(/'/g, "\\'") + '\')">' + esc(pn) + '</a></div>';
             html += '<div class="consol-desc">' + esc(desc) + '</div>';
             html += '</div>';
             html += '<div class="consol-row-meta">';
             if (mfr) html += '<span class="consol-mfr">' + esc(mfr) + '</span>';
-            html += '<span class="consol-price">' + priceDisplay + '</span>';
+            if (priceDisplay) html += '<span class="consol-price">' + priceDisplay + '</span>';
             html += stockDisplay;
             html += '</div>';
             html += '</div>';
         });
 
+        if (products.length > SHOW_LIMIT) {
+            html += '<div class="show-more-btn" id="showMore_' + cardId + '" onclick="showMoreResults(\'' + cardId + '\', this)" style="text-align:center; padding:10px; cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; border-top:1px solid var(--border);">';
+            html += 'Show ' + (products.length - SHOW_LIMIT) + ' more results';
+            html += '</div>';
+        }
+
         html += '</div></div>';
         return html;
+    };
+
+    window.showMoreResults = function (cardId, btn) {
+        var extras = document.querySelectorAll('[data-extra="' + cardId + '"]');
+        extras.forEach(function (el) { el.style.display = ''; });
+        if (btn) btn.remove();
     };
 
     // Expand a consolidated row into a full card
