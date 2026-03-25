@@ -749,6 +749,7 @@
     }
 
     // ── Parse pregame GPT response into structured data ──
+    // Supports V5 5-bullet format: Customer Focus, Lead Product, Talking Points, Key Question, Watch Out
     function parsePregameResponse(text) {
         if (!text || text.length < 50) return null;
 
@@ -758,35 +759,50 @@
         var question = '';
         var caseStudy = '';
 
-        // Extract industry
-        var indMatch = text.match(/(?:Industry|Application|Sector)[:\s]*\**([^*\n]+)/i);
+        // Extract industry from first line or header
+        var indMatch = text.match(/(?:Industry|Application|Sector|Pre-Call|Pregame)[:\s]*\**([^*\n]+)/i);
         if (indMatch) industry = indMatch[1].trim();
 
-        // Extract key concerns (numbered items after "care about" or "concerns" or "key")
-        var concernMatch = text.match(/(?:care about|concerns?|key points?|priorities)[:\s]*\n?((?:\d+\..*\n?)+)/i);
-        if (concernMatch) {
-            concerns = concernMatch[1].split(/\n/).filter(function(l) { return l.trim().match(/^\d/); }).map(function(l) {
-                return l.replace(/^\d+\.\s*/, '').replace(/\*\*/g, '').trim();
-            }).filter(function(c) { return c.length > 0; });
-        }
+        // V5 5-bullet format: look for labeled sections
+        var focusMatch = text.match(/\*?\*?Customer Focus\*?\*?[:\s]*([^\n]+)/i);
+        var leadMatch = text.match(/\*?\*?Lead Product\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
+        var talkMatch = text.match(/\*?\*?Talking Points?\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
+        var keyQMatch = text.match(/\*?\*?Key Question\*?\*?[:\s]*([^\n]+)/i);
+        var watchMatch = text.match(/\*?\*?Watch Out\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
 
-        // If no structured concerns, try to extract numbered items
-        if (concerns.length === 0) {
+        if (focusMatch || leadMatch || talkMatch) {
+            // V5 format detected — use structured extraction
+            if (focusMatch) concerns.push(focusMatch[1].trim());
+            if (talkMatch) {
+                // Split talking points by sub-numbers or dashes
+                var tpText = talkMatch[1].trim();
+                var tpItems = tpText.split(/(?:\d+\)|[-–—])\s*/);
+                tpItems.forEach(function(tp) {
+                    tp = tp.trim();
+                    if (tp.length > 5) concerns.push(tp);
+                });
+                if (concerns.length < 2) concerns.push(tpText);
+            }
+            if (watchMatch) concerns.push('Watch out: ' + watchMatch[1].trim());
+            if (leadMatch) product = leadMatch[1].replace(/\*\*/g, '').trim();
+            if (keyQMatch) question = keyQMatch[1].replace(/[""\u201c\u201d']/g, '').trim();
+        } else {
+            // Legacy format: extract numbered items
             var numItems = text.match(/\d+\.\s+\*?\*?([^\n*]+)/g);
             if (numItems && numItems.length >= 2) {
                 concerns = numItems.slice(0, 5).map(function(item) {
                     return item.replace(/^\d+\.\s*\*?\*?/, '').replace(/\*\*/g, '').trim();
                 });
             }
+
+            // Extract recommended product — be more specific to avoid false matches
+            var prodMatch = text.match(/(?:Lead Product|#1 Product|Recommended Product|Primary Product)[:\s]*\**([^*\n]+)/i);
+            if (prodMatch) product = prodMatch[1].trim();
+
+            // Extract closing question
+            var qMatch = text.match(/(?:Key Question|Closing Question|Ask)[:\s]*[""\u201c]?([^""\u201d\n]+)/i);
+            if (qMatch) question = qMatch[1].trim().replace(/["']/g, '');
         }
-
-        // Extract recommended product
-        var prodMatch = text.match(/(?:#1|recommended|primary|product)[:\s]*\**([^*\n]+)/i);
-        if (prodMatch) product = prodMatch[1].trim();
-
-        // Extract closing question
-        var qMatch = text.match(/(?:question|ask|opener|opening)[:\s]*[""\u201c]?([^""\u201d\n]+)/i);
-        if (qMatch) question = qMatch[1].trim().replace(/["']/g, '');
 
         // Extract case study
         var caseMatch = text.match(/(?:case study|example|reference)[:\s]*\**([^*\n]+)/i);
