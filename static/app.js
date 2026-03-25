@@ -473,7 +473,7 @@
             '<div class="welcome-icon">&#9881;</div>' +
             '<h2>Welcome to Filtration Mastermind</h2>' +
             '<p>Your AI-powered filtration product assistant.<br>' +
-            '72,000+ products. Real-time inventory. John\'s 30 years of expertise.</p>' +
+            '19,600+ validated products. Real-time inventory. John\'s 30 years of expertise.</p>' +
             '<button onclick="startSimulate()" style="margin-top:20px; padding:16px 36px; background:linear-gradient(135deg, #003366, #0066CC); color:white; border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 4px 16px rgba(0,102,204,0.3); font-family:inherit;">&#9654;&nbsp; See What AI Can Do</button>' +
             '<p style="margin-top:10px; font-size:12px; color:var(--text-light);">14-step live demo with real data</p>' +
             '<div style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">' +
