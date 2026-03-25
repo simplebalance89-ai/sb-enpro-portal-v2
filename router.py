@@ -840,10 +840,31 @@ async def _handle_gpt(
         system_prompt = REASONING_SYSTEM_PROMPT
 
     # Search for relevant products to include as context
-    search_result = search_products(df, message, max_results=5, in_stock_only=False)
-    if search_result.get("results"):
-        products_context = json.dumps(search_result["results"], indent=2, default=str)
-        context_parts.append(f"[RELEVANT PRODUCTS FROM CATALOG]:\n{products_context}")
+    # For pregame/application: search using KB-recommended products, not raw message
+    search_query = message
+    if intent in ("pregame", "application"):
+        # Extract recommended product names from KB map
+        msg_lower = message.lower()
+        for keyword, (section, title, products) in KB_SECTION_MAP.items():
+            if keyword in msg_lower:
+                # Search for the first recommended product name
+                product_names = [p.strip() for p in products.split(",")]
+                all_results = []
+                for pname in product_names[:3]:  # Search top 3 recommended products
+                    sr = search_products(df, pname, max_results=2, in_stock_only=False)
+                    if sr.get("results"):
+                        all_results.extend(sr["results"])
+                if all_results:
+                    products_context = json.dumps(all_results[:5], indent=2, default=str)
+                    context_parts.append(f"[RELEVANT PRODUCTS FROM CATALOG]:\n{products_context}")
+                search_query = None  # Skip the default search below
+                break
+
+    if search_query:
+        search_result = search_products(df, search_query, max_results=5, in_stock_only=False)
+        if search_result.get("results"):
+            products_context = json.dumps(search_result["results"], indent=2, default=str)
+            context_parts.append(f"[RELEVANT PRODUCTS FROM CATALOG]:\n{products_context}")
 
     # Anti-hallucination guardrail — force GPT to only use provided data
     context_parts.append(
