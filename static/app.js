@@ -1814,10 +1814,47 @@
     // ── Modal management ──
     var lookupModeRow = document.getElementById('lookupModeRow');
     var lookupMode = document.getElementById('lookupMode');
+    var pregameStep = 0;
+    var pregameData = { customer: '', industry: '', product_type: '' };
+
+    function resetPregameWizard() {
+        pregameStep = 0;
+        pregameData = { customer: '', industry: '', product_type: '' };
+    }
+
+    function applyPregameWizardStep() {
+        modalTitle.textContent = 'Customer Pre Game';
+        if (pregameStep === 0) {
+            modalLabel.textContent = 'Customer Name';
+            modalInput.placeholder = 'e.g., Acme Brewing';
+            modalHint.textContent = 'Start with the customer name.';
+        } else if (pregameStep === 1) {
+            modalLabel.textContent = 'Industry / Application';
+            modalInput.placeholder = 'e.g., brewery, hydraulic oil, wastewater';
+            modalHint.textContent = 'Tell me the industry or application.';
+        } else {
+            modalLabel.textContent = 'Product Type / Part Family';
+            modalInput.placeholder = 'e.g., filter element, cartridge, housing';
+            modalHint.textContent = 'Finish with the product type or part family.';
+        }
+        lookupModeRow.style.display = 'none';
+        document.getElementById('chemicalSelect').style.display = 'none';
+        document.getElementById('manufacturerSelect').style.display = 'none';
+        document.getElementById('productTypeSelect').style.display = 'none';
+        document.getElementById('searchTags').style.display = 'none';
+        modalInput.value = '';
+        setTimeout(function () { modalInput.focus(); }, 100);
+    }
 
     window.showModal = function (type) {
         currentModalType = type;
         modalOverlay.classList.add('active');
+
+        if (type === 'pregame') {
+            resetPregameWizard();
+            applyPregameWizardStep();
+            return;
+        }
 
         // Show/hide lookup mode selector
         lookupModeRow.style.display = type === 'lookup' ? 'block' : 'none';
@@ -1914,6 +1951,28 @@
 
         var type = currentModalType;
         var mode = lookupMode.value;
+
+        if (type === 'pregame') {
+            if (pregameStep === 0) pregameData.customer = val;
+            else if (pregameStep === 1) pregameData.industry = val;
+            else pregameData.product_type = val;
+
+            if (pregameStep < 2) {
+                pregameStep += 1;
+                applyPregameWizardStep();
+                return;
+            }
+
+            hideModal();
+            var pregameParts = [];
+            if (pregameData.customer) pregameParts.push('customer ' + pregameData.customer);
+            if (pregameData.industry) pregameParts.push('industry ' + pregameData.industry);
+            if (pregameData.product_type) pregameParts.push('product type ' + pregameData.product_type);
+            sendMessage('pregame ' + pregameParts.join(' | '));
+            resetPregameWizard();
+            return;
+        }
+
         hideModal();
 
         switch (type) {
