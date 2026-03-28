@@ -1,4 +1,4 @@
-/* ══════════════════════════════════════════════════════════════
+﻿/* ══════════════════════════════════════════════════════════════
    EnPro Filtration Mastermind — Frontend App
    ══════════════════════════════════════════════════════════════ */
 
@@ -43,15 +43,6 @@
 
     // ── Autocomplete suggestions ──
     var AUTOCOMPLETE_ITEMS = [
-        // Industries
-        {text: 'pregame refinery', label: 'Refinery / Oil & Gas', type: 'Industry'},
-        {text: 'pregame brewery', label: 'Brewery / Beverage', type: 'Industry'},
-        {text: 'pregame pharmaceutical', label: 'Pharmaceutical', type: 'Industry'},
-        {text: 'pregame municipal water', label: 'Municipal Water', type: 'Industry'},
-        {text: 'pregame power plant', label: 'Power Plant / Turbine', type: 'Industry'},
-        {text: 'pregame chemical processing', label: 'Chemical Processing', type: 'Industry'},
-        {text: 'pregame dairy', label: 'Dairy / CIP', type: 'Industry'},
-        {text: 'pregame wastewater', label: 'Wastewater', type: 'Industry'},
         // Product Types
         {text: 'search filter cartridge', label: 'Filter Cartridge', type: 'Product'},
         {text: 'search filter element', label: 'Filter Element', type: 'Product'},
@@ -109,10 +100,247 @@
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    function normalizeVoiceQuery(text) {
+        if (!text) return '';
+
+        var normalized = String(text)
+            .replace(/\bpal\b/gi, 'Pall')
+            .replace(/\bpower\s+parts?\b/gi, 'PowerFlow')
+            .replace(/\bfiltrox\b/gi, 'Filtrox')
+            .replace(/\bgraver\b/gi, 'Graver')
+            .replace(/\bppc\b/gi, 'PPC')
+            .replace(/\bflow\s*serve\b/gi, 'Flowserve')
+            .replace(/[“”]/g, '"')
+            .replace(/[\u2018\u2019]/g, "'");
+
+        normalized = normalized
+            .replace(/\b(yeah|ok|okay|you know|like|um|uh|sort of|kind of|whatever)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return normalized;
+    }
+
+    function detectManufacturerHint(text) {
+        if (!text) return '';
+        var haystack = String(text).toLowerCase();
+        var vendors = ['Pall', 'PowerFlow', 'Flowserve', 'Graver', 'Filtrox', 'PPC', 'Lechler'];
+        for (var i = 0; i < vendors.length; i += 1) {
+            if (haystack.indexOf(vendors[i].toLowerCase()) !== -1) {
+                return vendors[i];
+            }
+        }
+        return '';
+    }
+
+    function buildVoiceFallbackActions(transcript, data) {
+        var cleaned = normalizeVoiceQuery((data && (data.cleaned_transcript || data.transcript)) || transcript || '');
+        var actions = [];
+        var lower = cleaned.toLowerCase();
+        var manufacturer = detectManufacturerHint(cleaned);
+        var hasManufacturerIntent = /\b(manufacturer|brand)\b/i.test(lower);
+        var hasInventoryIntent = /\b(stock|inventory|available|availability|in stock|lead time|ship|shipping)\b/i.test(lower);
+        var hasTopSellingIntent = /\b(top selling|top-sell|best selling|most popular|top products)\b/i.test(lower);
+        var hasPartIntent = /\b(part number|part #|pn|part)\b/i.test(lower);
+
+        if (hasTopSellingIntent) {
+            actions.push({
+                label: 'Top selling filter elements',
+                query: 'search filter element'
+            });
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+        } else if (hasManufacturerIntent || manufacturer) {
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+        } else if (hasInventoryIntent) {
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Supplier / Alt code',
+                modal: 'supplier'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+        } else if (hasPartIntent) {
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Supplier / Alt code',
+                modal: 'supplier'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+        }
+
+        if (cleaned) {
+            actions.push({
+                label: 'Search broader',
+                query: 'search ' + cleaned
+            });
+        }
+
+        if (manufacturer) {
+            actions.push({
+                label: 'Show ' + manufacturer,
+                query: 'manufacturer ' + manufacturer
+            });
+        }
+
+        if (/\b(chemical|compatibility|compatible)\b/i.test(lower)) {
+            actions.push({
+                label: 'Chemical compatibility',
+                query: 'check chemical compatibility for ' + cleaned
+            });
+        }
+
+        if (/\b(price|pricing|cost|quote)\b/i.test(lower)) {
+            actions.push({
+                label: 'Pricing',
+                query: 'what is the price of ' + cleaned
+            });
+        }
+
+        if (/\b(stock|inventory|available|availability|lead time|ship|shipping)\b/i.test(lower)) {
+            actions.push({
+                label: 'Availability',
+                query: 'is ' + cleaned + ' in stock'
+            });
+        }
+
+        if (/\b(compare|similar|alternate|alternates|alternatives|other manufacturers|other options)\b/i.test(lower)) {
+            actions.push({
+                label: 'Find alternates',
+                query: 'find alternates for ' + cleaned
+            });
+        }
+
+        if (!actions.length) {
+            actions.push({
+                label: 'What are you trying to look for?',
+                query: 'lookup'
+            });
+            actions.push({
+                label: 'Supplier / Alt code',
+                modal: 'supplier'
+            });
+        }
+
+        // Keep the UI focused: only show the most useful next steps.
+        var deduped = [];
+        var seen = {};
+        actions.forEach(function (action) {
+            var key = (action.query || '').toLowerCase();
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            deduped.push(action);
+        });
+
+        return deduped.slice(0, 4);
+    }
+
+    function renderVoiceFallbackCard(transcript, data) {
+        var cleaned = normalizeVoiceQuery((data && data.cleaned_transcript) || transcript || '');
+        var actions = buildVoiceFallbackActions(transcript, data);
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">I did not find an exact match</div>';
+        html += '<div class="chemical-card-body">';
+        html += '<div style="margin-bottom:10px; color:var(--text); font-size:14px; line-height:1.5;">';
+        if (/\b(manufacturer|brand)\b/i.test(cleaned)) {
+            html += 'Which manufacturer are you looking for?';
+        } else if (/\b(top selling|top-sell|best selling|most popular|top products)\b/i.test(cleaned)) {
+            html += 'Do you want top-selling filter elements by manufacturer, or a specific part number?';
+        } else if (/\b(stock|inventory|available|availability|in stock|lead time|ship|shipping)\b/i.test(cleaned)) {
+            html += 'What did you want in inventory? Please repeat it more clearly.';
+        } else {
+            html += 'Let us narrow it down from the last query.';
+        }
+        if (cleaned) {
+            html += '<div style="margin-top:6px; color:var(--text-light); font-size:13px;">Cleaned query: ' + esc(cleaned) + '</div>';
+        }
+        html += '</div>';
+
+        html += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+        actions.forEach(function (action) {
+            if (action.modal) {
+                html += '<button class="followup-btn" onclick="showModal(\'' + esc(action.modal).replace(/'/g, "\\'") + '\')">' + esc(action.label) + '</button>';
+            } else {
+                html += '<button class="followup-btn" onclick="sendMessage(\'' + esc(action.query).replace(/'/g, "\\'") + '\')">' + esc(action.label) + '</button>';
+            }
+        });
+        html += '</div>';
+
+        if (data && data.suggestions && data.suggestions.length > 0) {
+            var strongHints = data.suggestions.filter(function (s) { return (s.confidence || 0) >= 0.90; });
+            if (strongHints.length > 0) {
+                html += '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">';
+                html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Normalization hints</div>';
+                strongHints.forEach(function (s) {
+                    html += '<div style="font-size:13px; margin-bottom:4px; color:var(--text);">';
+                    html += esc(String(s.field || 'field')) + ': "' + esc(String(s.original || '')) + '" → <strong>' + esc(String(s.resolved || '')) + '</strong>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    function renderVoiceClarifyCard(question, detail) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">Need one quick check</div>';
+        html += '<div class="chemical-card-body">';
+        html += '<div style="margin-bottom:10px; color:var(--text); font-size:14px; line-height:1.5;">' + esc(question || 'What are you trying to look for?') + '</div>';
+        if (detail) {
+            html += '<div style="margin-bottom:10px; color:var(--text-light); font-size:13px;">' + esc(detail) + '</div>';
+        }
+        html += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+        html += '<button class="followup-btn" onclick="focusChatInput()">Type it again</button>';
+        html += '<button class="followup-btn" onclick="showModal(\'lookup\')">Lookup</button>';
+        html += '<button class="followup-btn" onclick="showModal(\'compare\')">Compare</button>';
+        html += '</div>';
+        html += '</div></div>';
+        return html;
+    }
+
     // ── Auto-grow textarea ──
     window.autoGrow = function (el) {
         el.style.height = 'auto';
         el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+    };
+
+    window.focusChatInput = function () {
+        if (userInput) userInput.focus();
     };
 
     // ── Keyboard handling ──
@@ -263,7 +491,7 @@
                 var data = await res.json();
                 var suggestions = data.suggestions || [];
                 if (suggestions.length === 0) {
-                    appendMessage('bot', 'No products found ' + (mode === 'starts_with' ? 'starting with' : 'containing') + ' "' + esc(partNumber) + '".\nContact: service@enproinc.com | 1 (800) 323-2416');
+                    appendCard(renderVoiceFallbackCard(partNumber, { transcript: partNumber, query: partNumber }));
                 } else {
                     appendMessage('bot', formatMarkdown('Found **' + suggestions.length + '** matches ' + (mode === 'starts_with' ? 'starting with' : 'containing') + ' "' + partNumber + '" [V25 FILTERS]:'));
                     // Stagger card loading so results cascade in smoothly
@@ -394,19 +622,16 @@
             }
         }
 
-        // Pregame/application intent — parse into prep card
-        if ((data.intent === 'pregame' || data.intent === 'application') && data.response && !data.pregame) {
-            var pregameCard = parsePregameResponse(data.response);
-            if (pregameCard) {
-                appendCard(renderPregameCard(pregameCard));
-                if (data.products && data.products.length > 0) {
-                    await renderProductsBatched(data.products);
-                }
-                scrollToBottom();
-                searchCount++;
-                checkAutoReset();
-                return;
+        // Application intent — render as plain guidance and any returned products
+        if (data.intent === 'application' && data.response) {
+            appendMessage('bot', formatMarkdown(data.response));
+            if (data.products && data.products.length > 0) {
+                await renderProductsBatched(data.products);
             }
+            scrollToBottom();
+            searchCount++;
+            checkAutoReset();
+            return;
         }
 
         // Only capture specs into context from SINGLE product lookups, not multi-result searches
@@ -446,7 +671,7 @@
             }
         } else if (data.total_found !== undefined && data.query !== undefined) {
             // Search results with 0 matches
-            appendMessage('bot', formatMarkdown('No products found matching "' + (data.query || '') + '".\nTry a different search term or contact EnPro.\nservice@enproinc.com | 1 (800) 323-2416'));
+            appendCard(renderVoiceFallbackCard(data.query || '', data));
         } else if (typeof data === 'string') {
             appendMessage('bot', formatMarkdown(data));
         } else {
@@ -476,7 +701,7 @@
         chatArea.innerHTML = '<div class="welcome">' +
             '<div class="welcome-icon" style="font-size:48px;">&#128270;</div>' +
             '<h2>Filtration Mastermind</h2>' +
-            '<p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, prep for a meeting, compare products, check chemical compatibility — type it like you\'d say it.</p>' +
+            '<p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, compare products, check chemical compatibility, or ask for pricing — type it like you\'d say it.</p>' +
             '<p style="margin-top:8px; font-size:13px; color:var(--text-light);">19,600+ validated products. Real-time inventory. Real prices.</p>' +
             '</div>';
         // Reset state
@@ -594,7 +819,11 @@
         if (tempF && tempF !== '0' && tempF !== '0.0') specs.push(esc(String(tempF)) + '°F');
         if (psi && psi !== '0' && psi !== '0.0') specs.push(esc(String(psi)) + ' PSI');
         if (flow) specs.push(esc(String(flow)));
-        if (specs.length) fields.push(['Specs', specs.join(' | ')]);
+        if (specs.length) {
+            fields.push(['Specs', specs.map(function (spec) {
+                return '<div class="spec-line">' + spec + '</div>';
+            }).join('')]);
+        }
 
         if (eff) fields.push(['Efficiency', eff]);
 
@@ -674,7 +903,7 @@
 
         html += '</div>'; // body
 
-        // Card actions removed � keeping it simple
+        // Card actions removed � keeping it simple
         html += '</div>';
 
 
@@ -744,7 +973,7 @@
         };
     }
 
-    // ── Parse pregame GPT response into structured data ──
+    // ── Parse application guidance GPT response into structured data ──
     // Supports V5 5-bullet format: Customer Focus, Lead Product, Talking Points, Key Question, Watch Out
     function parsePregameResponse(text) {
         if (!text || text.length < 50) return null;
@@ -756,7 +985,7 @@
         var caseStudy = '';
 
         // Extract industry from first line or header
-        var indMatch = text.match(/(?:Industry|Application|Sector|Pre-Call|Pregame)[:\s]*\**([^*\n]+)/i);
+        var indMatch = text.match(/(?:Industry|Application|Sector|Pre-Call)[:\s]*\**([^*\n]+)/i);
         if (indMatch) industry = indMatch[1].trim();
 
         // V5 5-bullet format: look for labeled sections
@@ -817,10 +1046,10 @@
         };
     }
 
-    // ── Render pregame prep card ──
+    // ── Render application guidance card ──
     window.renderPregameCard = function (data) {
         var html = '<div class="chemical-card">';
-        html += '<div class="chemical-card-header">Pre-Call Prep' + (data.industry ? ': ' + esc(data.industry) : '') + '</div>';
+        html += '<div class="chemical-card-header">Application Guidance' + (data.industry ? ': ' + esc(data.industry) : '') + '</div>';
         html += '<div class="chemical-card-body">';
 
         if (data.concerns && data.concerns.length > 0) {
@@ -991,23 +1220,23 @@
             '<div class="action-grid">' +
                 '<div class="action-card" onclick="runAction(\'chemical\', \'' + esc(partNumber) + '\', this)" data-action-num="1">' +
                     '<div class="action-num">1</div>' +
-                    '<div class="action-label">Chemical Check</div>' +
+                    '<div class="action-label">Chemical Compatibility</div>' +
                     '<div class="action-desc">Material compatibility</div>' +
                 '</div>' +
-                '<div class="action-card" onclick="showCompareForm(\'' + esc(partNumber) + '\', \'' + panelId + '\')" data-action-num="2">' +
+                '<div class="action-card" onclick="runAction(\'price\', \'' + esc(partNumber) + '\', this)" data-action-num="2">' +
                     '<div class="action-num">2</div>' +
+                    '<div class="action-label">Price Check</div>' +
+                    '<div class="action-desc">Quick pricing lookup</div>' +
+                '</div>' +
+                '<div class="action-card" onclick="runAction(\'availability\', \'' + esc(partNumber) + '\', this)" data-action-num="3">' +
+                    '<div class="action-num">3</div>' +
+                    '<div class="action-label">Availability</div>' +
+                    '<div class="action-desc">Stock and inventory</div>' +
+                '</div>' +
+                '<div class="action-card" onclick="showCompareForm(\'' + esc(partNumber) + '\', \'' + panelId + '\')" data-action-num="4">' +
+                    '<div class="action-num">4</div>' +
                     '<div class="action-label">Compare</div>' +
                     '<div class="action-desc">Side-by-side with another part</div>' +
-                '</div>' +
-                '<div class="action-card" onclick="runAction(\'similar\', \'' + esc(partNumber) + '\', this)" data-action-num="3">' +
-                    '<div class="action-num">3</div>' +
-                    '<div class="action-label">Similar Parts</div>' +
-                    '<div class="action-desc">Find alternatives</div>' +
-                '</div>' +
-                '<div class="action-card" onclick="runAction(\'manufacturer\', \'' + esc(partNumber) + '\', this)" data-action-num="4">' +
-                    '<div class="action-num">4</div>' +
-                    '<div class="action-label">Manufacturer</div>' +
-                    '<div class="action-desc">More from this brand</div>' +
                 '</div>' +
             '</div>' +
         '</div>';
@@ -1026,11 +1255,11 @@
             case 'chemical':
                 sendMessage('chemical compatibility check for part ' + partNumber);
                 break;
-            case 'similar':
-                sendMessage('similar to ' + partNumber);
+            case 'price':
+                sendMessage('price ' + partNumber);
                 break;
-            case 'manufacturer':
-                sendMessage('manufacturer ' + partNumber);
+            case 'availability':
+                sendMessage('lookup ' + partNumber);
                 break;
         }
     };
@@ -1096,9 +1325,10 @@
         html += '<div style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;">';
         html += '<label style="font-size:13px; font-weight:600; margin-bottom:6px; display:block;">Compare with any part:</label>';
         html += '<div style="display:flex; gap:8px;">';
-        html += '<input type="text" id="compareManualInput" placeholder="Enter part number..." onkeydown="if(event.key===\'Enter\')runCompareManual(\'' + esc(sourcePartNumber) + '\')" style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px;">';
+        html += '<input type="text" id="compareManualInput" list="compareManualList" placeholder="Enter part number..." onkeydown="if(event.key===\'Enter\')runCompareManual(\'' + esc(sourcePartNumber) + '\')" style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px;">';
         html += '<button class="quote-btn-primary" style="flex:none; padding:10px 16px;" onclick="runCompareManual(\'' + esc(sourcePartNumber) + '\')">Compare</button>';
         html += '</div></div>';
+        html += '<datalist id="compareManualList"></datalist>';
 
         // Categories
         if (data.categories && data.categories.length > 0) {
@@ -1119,7 +1349,13 @@
                     html += '<div class="compare-suggestion-info">';
                     html += '<div class="compare-suggestion-pn">' + esc(p.Part_Number || '') + '</div>';
                     html += '<div class="compare-suggestion-desc">' + esc(p.Description || '') + ' — ' + esc(String(priceStr)) + '</div>';
-                    if (specParts.length) html += '<div class="compare-suggestion-specs">' + esc(specParts.join(' | ')) + '</div>';
+                    if (specParts.length) {
+                        html += '<div class="compare-suggestion-specs">';
+                        specParts.forEach(function (specPart) {
+                            html += '<div class="spec-line">' + esc(specPart) + '</div>';
+                        });
+                        html += '</div>';
+                    }
                     html += '</div>';
                     html += '<div class="compare-suggestion-action">Compare &rarr;</div>';
                     html += '</div>';
@@ -1132,12 +1368,53 @@
         }
 
         body.innerHTML = html;
+
+        var compareManualInput = document.getElementById('compareManualInput');
+        if (compareManualInput) {
+            compareManualInput.oninput = function () {
+                populateCompareDatalist('compareManualInput', 'compareManualList');
+            };
+            populateCompareDatalist('compareManualInput', 'compareManualList');
+        }
     }
 
     window.runCompareFromPanel = function (sourcePn, targetPn) {
         closeComparePanel();
         sendMessage('compare ' + sourcePn + ' vs ' + targetPn);
     };
+
+    function populateCompareDatalist(inputId, listId, query) {
+        var input = document.getElementById(inputId);
+        var list = document.getElementById(listId);
+        if (!input || !list) return;
+
+        var q = (query || input.value || '').trim();
+        if (q.length < 2) {
+            list.innerHTML = '';
+            return;
+        }
+
+        fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(q) + '&mode=contains&in_stock=all')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var suggestions = (data && data.suggestions) ? data.suggestions.slice(0, 8) : [];
+                if (!suggestions.length) {
+                    list.innerHTML = '';
+                    return;
+                }
+
+                var html = '';
+                suggestions.forEach(function (item) {
+                    var pn = item.Part_Number || '';
+                    var desc = item.Description || '';
+                    html += '<option value="' + esc(pn).replace(/"/g, '&quot;') + '">' + esc(pn + (desc ? ' — ' + desc : '')) + '</option>';
+                });
+                list.innerHTML = html;
+            })
+            .catch(function () {
+                list.innerHTML = '';
+            });
+    }
 
     window.runCompareManual = function (sourcePn) {
         var input = document.getElementById('compareManualInput');
@@ -1164,12 +1441,14 @@
 
         html += '<div style="margin-bottom:16px;">';
         html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part A</label>';
-        html += '<input type="text" id="comparePartA" value="' + (partA ? partA : '') + '" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<input type="text" id="comparePartA" list="comparePartAList" value="' + (partA ? partA : '') + '" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<datalist id="comparePartAList"></datalist>';
         html += '</div>';
 
         html += '<div style="margin-bottom:16px;">';
         html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part B</label>';
-        html += '<input type="text" id="comparePartB" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<input type="text" id="comparePartB" list="comparePartBList" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<datalist id="comparePartBList"></datalist>';
         html += '</div>';
 
         html += '<button onclick="runCompareSelector()" style="width:100%; padding:12px; background:var(--accent); color:white; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;">Compare Side-by-Side</button>';
@@ -1189,6 +1468,9 @@
         var partBInput = document.getElementById('comparePartB');
         partAInput.onkeydown = function(e) { if (e.key === 'Enter') partBInput.focus(); };
         partBInput.onkeydown = function(e) { if (e.key === 'Enter') runCompareSelector(); };
+        partAInput.oninput = function () { populateCompareDatalist('comparePartA', 'comparePartAList'); };
+        partBInput.oninput = function () { populateCompareDatalist('comparePartB', 'comparePartBList'); };
+        populateCompareDatalist('comparePartA', 'comparePartAList');
     };
 
     window.runCompareSelector = function() {
@@ -1476,7 +1758,7 @@
         text = text.replace(/\[NO PRICE\]/g, '');
         text = text.replace(/\[CRITICAL DATA INTEGRITY RULE\][\s\S]*?\[USER MESSAGE\]:/g, '');
         // Strip follow-up option lines that GPT includes as text
-        text = text.replace(/^.*(?:Pre-Call Prep|quote ready|lookup|price|compare|manufacturer|chemical|pregame|application)[,\s]*(?:quote ready|help|lookup|price|compare|manufacturer|chemical|pregame|application)[,\s]*(?:help)?\.?\s*$/gim, '');
+        text = text.replace(/^.*(?:Application Guidance|quote ready|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:quote ready|help|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:help)?\.?\s*$/gim, '');
         // Clean up stray markdown artifacts
         text = text.replace(/^\s*[-•–]\s*/gm, '');  // Strip leading dashes/bullets
         text = text.replace(/^\s*#{1,3}\s+/gm, '');  // Strip heading markers
@@ -1508,7 +1790,7 @@
     // ── Loading state ──
     function setLoading(on) {
         isLoading = on;
-        sendBtn.disabled = on;
+        if (sendBtn) sendBtn.disabled = on;
         typingEl.classList.toggle('active', on);
         if (on) {
             chatArea.appendChild(typingEl);
@@ -1532,10 +1814,47 @@
     // ── Modal management ──
     var lookupModeRow = document.getElementById('lookupModeRow');
     var lookupMode = document.getElementById('lookupMode');
+    var pregameStep = 0;
+    var pregameData = { customer: '', industry: '', product_type: '' };
+
+    function resetPregameWizard() {
+        pregameStep = 0;
+        pregameData = { customer: '', industry: '', product_type: '' };
+    }
+
+    function applyPregameWizardStep() {
+        modalTitle.textContent = 'Customer Pre Game';
+        if (pregameStep === 0) {
+            modalLabel.textContent = 'Customer Name';
+            modalInput.placeholder = 'e.g., Acme Brewing';
+            modalHint.textContent = 'Start with the customer name.';
+        } else if (pregameStep === 1) {
+            modalLabel.textContent = 'Industry / Application';
+            modalInput.placeholder = 'e.g., brewery, hydraulic oil, wastewater';
+            modalHint.textContent = 'Tell me the industry or application.';
+        } else {
+            modalLabel.textContent = 'Product Type / Part Family';
+            modalInput.placeholder = 'e.g., filter element, cartridge, housing';
+            modalHint.textContent = 'Finish with the product type or part family.';
+        }
+        lookupModeRow.style.display = 'none';
+        document.getElementById('chemicalSelect').style.display = 'none';
+        document.getElementById('manufacturerSelect').style.display = 'none';
+        document.getElementById('productTypeSelect').style.display = 'none';
+        document.getElementById('searchTags').style.display = 'none';
+        modalInput.value = '';
+        setTimeout(function () { modalInput.focus(); }, 100);
+    }
 
     window.showModal = function (type) {
         currentModalType = type;
         modalOverlay.classList.add('active');
+
+        if (type === 'pregame') {
+            resetPregameWizard();
+            applyPregameWizardStep();
+            return;
+        }
 
         // Show/hide lookup mode selector
         lookupModeRow.style.display = type === 'lookup' ? 'block' : 'none';
@@ -1543,9 +1862,7 @@
         // Show/hide dropdowns per modal type
         document.getElementById('chemicalSelect').style.display = type === 'chemical' ? 'block' : 'none';
         document.getElementById('manufacturerSelect').style.display = type === 'manufacturer' ? 'block' : 'none';
-        document.getElementById('pregameSelect').style.display = type === 'pregame' ? 'block' : 'none';
         document.getElementById('productTypeSelect').style.display = type === 'product_type' ? 'block' : 'none';
-        document.getElementById('industrySelect').style.display = type === 'industry' ? 'block' : 'none';
         document.getElementById('searchTags').style.display = type === 'search' ? 'block' : 'none';
 
         switch (type) {
@@ -1579,12 +1896,6 @@
                 modalInput.placeholder = 'e.g., T1030000000';
                 modalHint.textContent = 'Enter the supplier/OEM part number.';
                 break;
-            case 'pregame':
-                modalTitle.textContent = 'Meeting Pregame';
-                modalLabel.textContent = 'Customer or Industry';
-                modalInput.placeholder = 'e.g., brewery, refinery, municipal water';
-                modalHint.textContent = 'Enter customer name or industry, or pick from the list below.';
-                break;
             case 'product_type':
                 modalTitle.textContent = 'Product Type Search';
                 modalLabel.textContent = 'Product Type';
@@ -1602,12 +1913,6 @@
                 modalLabel.textContent = 'Parts to Compare';
                 modalInput.placeholder = 'e.g., CLR130 vs CLR140';
                 modalHint.textContent = 'Enter part numbers separated by "vs" or spaces.';
-                break;
-            case 'industry':
-                modalTitle.textContent = 'Industry Search';
-                modalLabel.textContent = 'Industry';
-                modalInput.placeholder = 'e.g., brewery, refinery, pharmaceutical';
-                modalHint.textContent = 'Pick an industry from the list or type one to find relevant products.';
                 break;
         }
 
@@ -1646,6 +1951,28 @@
 
         var type = currentModalType;
         var mode = lookupMode.value;
+
+        if (type === 'pregame') {
+            if (pregameStep === 0) pregameData.customer = val;
+            else if (pregameStep === 1) pregameData.industry = val;
+            else pregameData.product_type = val;
+
+            if (pregameStep < 2) {
+                pregameStep += 1;
+                applyPregameWizardStep();
+                return;
+            }
+
+            hideModal();
+            var pregameParts = [];
+            if (pregameData.customer) pregameParts.push('customer ' + pregameData.customer);
+            if (pregameData.industry) pregameParts.push('industry ' + pregameData.industry);
+            if (pregameData.product_type) pregameParts.push('product type ' + pregameData.product_type);
+            sendMessage('pregame ' + pregameParts.join(' | '));
+            resetPregameWizard();
+            return;
+        }
+
         hideModal();
 
         switch (type) {
@@ -1654,9 +1981,7 @@
             case 'search': doSearch(val); break;
             case 'manufacturer': sendMessage('manufacturer ' + val); break;
             case 'supplier': sendMessage('supplier ' + val); break;
-            case 'pregame': sendMessage('pregame ' + val); break;
             case 'product_type': doSearch(val); break;
-            case 'industry': sendMessage('pregame ' + val); break;
             case 'price': sendMessage('price ' + val); break;
             case 'compare': sendMessage('compare ' + val); break;
         }
@@ -2092,22 +2417,6 @@
         origNewChat2();
     };
 
-    // ── Pregame dropdown handler ──
-    document.getElementById('pregameSelect').addEventListener('change', function () {
-        if (this.value) {
-            modalInput.value = this.value;
-            modalSubmit();
-        }
-    });
-
-    // ── Industry dropdown handler ──
-    document.getElementById('industrySelect').addEventListener('change', function () {
-        if (this.value) {
-            modalInput.value = this.value;
-            modalSubmit();
-        }
-    });
-
     // ── Session History ──
     var SEARCH_HISTORY_KEY = 'enpro_fm_search_history';
     var MAX_HISTORY = 30;
@@ -2516,103 +2825,6 @@
         }
     }
 
-    // ── Pregame Picker (guided flow) ──
-    window.openPregamePicker = function () {
-        // Override the regular pregame modal — show picker panel instead
-        var overlay = document.getElementById('quoteModalOverlay');
-        var body = document.getElementById('quoteModalBody');
-        var titleEl = document.getElementById('quoteModalTitle');
-        var footer = document.getElementById('quoteModalFooter');
-
-        titleEl.textContent = 'Meeting Pregame';
-        footer.innerHTML = '<button class="quote-btn-secondary" onclick="closeQuoteModal()">Cancel</button>' +
-            '<button class="quote-btn-primary" onclick="runPregamePicker()">Run Pregame</button>';
-
-        var html = '<div class="pregame-picker">';
-
-        // Industry dropdown
-        html += '<div class="pregame-picker-field">';
-        html += '<label>Industry</label>';
-        html += '<select id="pgIndustry">';
-        html += '<option value="">-- Select industry --</option>';
-        var industries = [
-            'Refinery / Oil & Gas', 'Brewery / Beverage', 'Dairy / CIP',
-            'Municipal Water', 'Pharmaceutical', 'Power Plant / Turbine',
-            'Chemical Processing', 'Food & Beverage', 'Hydraulic Systems',
-            'Paint & Coatings', 'Petrochemical', 'Pulp & Paper',
-            'Semiconductor', 'Wastewater'
-        ];
-        industries.forEach(function (ind) {
-            html += '<option value="' + esc(ind) + '">' + esc(ind) + '</option>';
-        });
-        html += '</select></div>';
-
-        // Product Type dropdown (populated from API)
-        html += '<div class="pregame-picker-field">';
-        html += '<label>Product Type <span style="font-weight:400; color:var(--text-light);">(optional)</span></label>';
-        html += '<select id="pgProductType"><option value="">-- Any product type --</option></select>';
-        html += '</div>';
-
-        // Manufacturer dropdown (populated from API)
-        html += '<div class="pregame-picker-field">';
-        html += '<label>Manufacturer <span style="font-weight:400; color:var(--text-light);">(optional)</span></label>';
-        html += '<select id="pgManufacturer"><option value="">-- Any manufacturer --</option></select>';
-        html += '</div>';
-
-        // Customer name (optional)
-        html += '<div class="pregame-picker-field">';
-        html += '<label>Customer Name <span style="font-weight:400; color:var(--text-light);">(optional)</span></label>';
-        html += '<input type="text" id="pgCustomer" placeholder="e.g., Acme Brewing Co." style="padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px;">';
-        html += '</div>';
-
-        html += '</div>';
-        body.innerHTML = html;
-        overlay.classList.add('active');
-
-        // Populate product types and manufacturers from API
-        fetch(API_BASE + '/api/product-types/list').then(function (r) { return r.json(); }).then(function (data) {
-            var sel = document.getElementById('pgProductType');
-            (data.product_types || []).forEach(function (t) {
-                var opt = document.createElement('option');
-                opt.value = t;
-                opt.textContent = t;
-                sel.appendChild(opt);
-            });
-        }).catch(function () {});
-
-        fetch(API_BASE + '/api/manufacturers/list').then(function (r) { return r.json(); }).then(function (data) {
-            var sel = document.getElementById('pgManufacturer');
-            (data.manufacturers || []).forEach(function (m) {
-                var opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                sel.appendChild(opt);
-            });
-        }).catch(function () {});
-    };
-
-    window.runPregamePicker = function () {
-        var industry = (document.getElementById('pgIndustry') || {}).value || '';
-        var productType = (document.getElementById('pgProductType') || {}).value || '';
-        var manufacturer = (document.getElementById('pgManufacturer') || {}).value || '';
-        var customer = (document.getElementById('pgCustomer') || {}).value || '';
-
-        if (!industry) {
-            alert('Please select an industry.');
-            return;
-        }
-
-        // Build the pregame message
-        var parts = ['pregame'];
-        if (customer) parts.push(customer + ' -');
-        parts.push(industry);
-        if (productType) parts.push('- product type: ' + productType);
-        if (manufacturer) parts.push('- manufacturer: ' + manufacturer);
-
-        closeQuoteModal();
-        sendMessage(parts.join(' '));
-    };
-
     // ── Two-Lane Workbench — Context Parser ──
     var sessionContext = {
         fluid: null,
@@ -2699,7 +2911,6 @@
             { id: 'ctxTemp', val: sessionContext.temperature },
             { id: 'ctxFlow', val: sessionContext.flowRate },
             { id: 'ctxPSI', val: sessionContext.pressure },
-            { id: 'ctxIndustry', val: sessionContext.industry },
             { id: 'ctxChemical', val: sessionContext.chemical },
         ];
 
@@ -3010,17 +3221,26 @@
                         appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
                     }
 
-                    // Show confidence suggestions ("Did you mean?")
+                    // Show confidence suggestions only when we are at/above the 90% gate.
                     if (data.suggestions && data.suggestions.length > 0) {
-                        var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
-                        sugHtml += '<strong>Did you mean?</strong><br>';
-                        data.suggestions.forEach(function (s) {
-                            sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
-                            sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
-                            sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
+                        var strongSuggestions = data.suggestions.filter(function (s) {
+                            return (s.confidence || 0) >= 0.90;
                         });
-                        sugHtml += '</div>';
-                        appendMessage('bot', sugHtml);
+
+                        if (strongSuggestions.length > 0) {
+                            var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
+                            sugHtml += '<strong>Did you mean?</strong><br>';
+                            strongSuggestions.forEach(function (s) {
+                                sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
+                                sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
+                                sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
+                            });
+                            sugHtml += '</div>';
+                            appendMessage('bot', sugHtml);
+                        } else {
+                            var question = 'What did you want in inventory? Please repeat it more clearly.';
+                            appendCard(renderVoiceClarifyCard(question, ''));
+                        }
                     }
 
                     // Render product results using existing card renderer
@@ -3032,7 +3252,7 @@
                             appendCard(renderProductCard(product));
                         });
                     } else {
-                        appendMessage('bot', 'No products found for that voice query. Try being more specific — like "10 micron Pall cartridge in stock".');
+                        appendCard(renderVoiceFallbackCard(data.transcript || '', data));
                     }
 
                 } catch (err) {
@@ -3127,9 +3347,9 @@
         { label: 'Compare Side-by-Side', query: 'compare 2004355 vs CMBF1-30NN', pause: 7000, flow: 1,
           narration: 'Side-by-side comparison. Real specs, real prices, real stock.' },
 
-        // FLOW 2: Pre-call prep → products → manufacturer
-        { label: 'Brewery Pregame', query: 'pregame brewery', pause: 7000, flow: 2,
-          narration: 'Flow 2: Rep has a brewery call in 5 minutes. Get prepped.' },
+        // FLOW 2: Application branch → products → manufacturer
+        { label: 'Brewery Branch', query: 'application brewery', pause: 7000, flow: 2,
+          narration: 'Flow 2: Rep has a brewery call. Branch into application guidance.' },
         { label: 'Find Depth Sheets', query: 'search depth sheet', pause: 5000, flow: 2,
           narration: 'Prep says depth sheets. Search to find what is in stock.' },
         { label: 'Browse Filtrox', query: 'manufacturer Filtrox', pause: 5000, flow: 2,
