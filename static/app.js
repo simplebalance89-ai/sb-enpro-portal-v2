@@ -3340,7 +3340,9 @@
             voiceMediaRecorder.start();
             isListening = true;
             micBtn.classList.add('listening');
-            userInput.placeholder = 'Listening... click mic to stop';
+            var micStatus = document.getElementById('micStatus');
+            if (micStatus) micStatus.style.display = 'block';
+            userInput.placeholder = 'Listening... tap mic to stop'
         } catch (err) {
             console.error('Mic access error:', err);
             appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
@@ -3350,6 +3352,8 @@
     function stopListening() {
         isListening = false;
         micBtn.classList.remove('listening');
+        var micStatus = document.getElementById('micStatus');
+        if (micStatus) micStatus.style.display = 'none';
         userInput.placeholder = 'Ask about a part, chemical, or product...';
         if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
             voiceMediaRecorder.stop();
