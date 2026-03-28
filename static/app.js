@@ -776,6 +776,7 @@
         var desc = p.Description || p.description || '';
         var ext = p.Extended_Description || p.extended_description || '';
         var ptype = p.Product_Type || p.product_type || '';
+        var industry = p.Industry || p.industry || p.Application || p.application || '';
         var mfg = p.Final_Manufacturer || p.Manufacturer || p.manufacturer || '';
         var micron = p.Micron || p.micron || '';
         var media = p.Media || p.media || '';
@@ -797,6 +798,7 @@
         var fields = [
             ['Description', primaryDesc],
             ['Product Type', ptype],
+            ['Industry', industry],
             ['Manufacturer', mfg]
         ];
 
@@ -819,6 +821,8 @@
                     html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'manufacturer ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
                 } else if (f[0] === 'Product Type') {
                     html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'search ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Industry') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'industry ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
                 } else if (['Micron', 'Media', 'Max Temp', 'Max PSI', 'Flow Rate', 'Efficiency'].includes(f[0])) {
                     // Spec fields already have formatting
                     html += '<div class="product-field-value">' + val + '</div>';
