@@ -3248,6 +3248,49 @@
     var voiceMediaRecorder = null;
     var voiceAudioChunks = [];
 
+    // Check for voice commands (trigger modals, send, hang up)
+    function checkVoiceCommands(transcript) {
+        var lower = transcript.toLowerCase().trim();
+        
+        // Modal triggers
+        if (/^(look up|lookup)\s+(part|part number)/.test(lower)) {
+            showModal('lookup');
+            return true;
+        }
+        if (/^customer\s+(pre game|pregame|pre-game)/.test(lower)) {
+            showModal('pregame');
+            return true;
+        }
+        if (/^compare\s+(parts|products)/.test(lower)) {
+            openCompareSelector();
+            return true;
+        }
+        if (/^chemical\s+(check|compatibility)/.test(lower)) {
+            showModal('chemical');
+            return true;
+        }
+        
+        // Send command
+        if (/^send$|^send it$|^submit$/.test(lower)) {
+            var input = document.getElementById('userInput');
+            if (input && input.value.trim()) {
+                sendMessage(input.value.trim());
+                input.value = '';
+            }
+            return true;
+        }
+        
+        // Hang up / Cancel command
+        if (/^hang up$|^cancel$|^clear$|^never mind$|^nevermind$/.test(lower)) {
+            var input = document.getElementById('userInput');
+            if (input) input.value = '';
+            appendMessage('bot', '<em>Cancelled.</em>');
+            return true;
+        }
+        
+        return false; // Not a command, process normally
+    }
+
     window.toggleVoice = function () {
         if (isListening) {
             stopListening();
@@ -3297,6 +3340,13 @@
                     // Show what was heard
                     if (data.transcript) {
                         appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
+                        
+                        // Check for voice commands
+                        var voiceCmd = checkVoiceCommands(data.transcript);
+                        if (voiceCmd) {
+                            // Command handled, stop processing
+                            return;
+                        }
                     }
 
                     // Show confidence suggestions only when we are at/above the 90% gate.
