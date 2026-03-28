@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -210,6 +210,10 @@
         }
         .product-field-value {
             color: var(--text);
+        }
+        .spec-line {
+            display: block;
+            margin-top: 2px;
         }
 
         /* Stock Section */
@@ -472,46 +476,6 @@
             .ask-john-btn span { display: none; }
             .ask-john-btn { padding: 0 10px; border-radius: 50%; width: 42px; justify-content: center; }
         }
-
-        /* ── Pregame Picker Modal ── */
-        .pregame-picker {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-        .pregame-picker-field {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .pregame-picker-field label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text);
-        }
-        .pregame-picker-field select {
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 14px;
-            font-family: inherit;
-            background: white;
-            cursor: pointer;
-        }
-        .pregame-picker-field select:focus { border-color: var(--accent); outline: none; }
-        .pregame-run-btn {
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 20px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 4px;
-            transition: background 0.15s;
-        }
-        .pregame-run-btn:hover { background: var(--navy); }
 
         /* ── Modals ── */
         .modal-overlay {
@@ -1589,6 +1553,9 @@
             margin-top: 2px;
         }
         .compare-suggestion-specs {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
             font-size: 11px;
             color: var(--text-light);
             margin-top: 4px;
@@ -2020,8 +1987,11 @@
         <button class="qa-btn" onclick="showModal('lookup')">
             <span class="qa-icon">&#128269;</span> Lookup Part Number
         </button>
-        <button class="qa-btn" onclick="openPregamePicker()">
-            <span class="qa-icon">&#127919;</span> Customer Pregame
+        <button class="qa-btn" onclick="showModal('price')">
+            <span class="qa-icon">&#128181;</span> Price Check
+        </button>
+        <button class="qa-btn" onclick="showModal('chemical')">
+            <span class="qa-icon">&#129514;</span> Chemical Compatibility
         </button>
         <button class="qa-btn" onclick="showModal('compare')">
             <span class="qa-icon">&#128203;</span> Compare Parts
@@ -2046,7 +2016,6 @@
             <div class="ctx-field" id="ctxTemp"><span class="ctx-label">Temp</span><span class="ctx-value ctx-empty">?</span></div>
             <div class="ctx-field" id="ctxFlow"><span class="ctx-label">Flow</span><span class="ctx-value ctx-empty">?</span></div>
             <div class="ctx-field" id="ctxPSI"><span class="ctx-label">PSI</span><span class="ctx-value ctx-empty">?</span></div>
-            <div class="ctx-field" id="ctxIndustry"><span class="ctx-label">Industry</span><span class="ctx-value ctx-empty">?</span></div>
             <div class="ctx-field" id="ctxChemical"><span class="ctx-label">Chemical</span><span class="ctx-value ctx-empty">&mdash;</span></div>
         </div>
         <div class="ctx-readiness" id="ctxReadiness" style="display:none;">
@@ -2070,7 +2039,7 @@
     <div class="welcome">
         <div class="welcome-icon" style="font-size:48px;">&#128270;</div>
         <h2>Filtration Mastermind</h2>
-        <p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, prep for a meeting, compare products, check chemical compatibility — type it like you'd say it.</p>
+        <p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, compare products, check chemical compatibility, or ask for pricing — type it like you'd say it.</p>
         <p style="margin-top:8px; font-size:13px; color:var(--text-light);">19,600+ validated products. Real-time inventory. Real prices.</p>
     </div>
 </div>
@@ -2160,40 +2129,6 @@
             </select>
             <select id="manufacturerSelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
                 <option value="">-- Pick a manufacturer --</option>
-            </select>
-            <select id="industrySelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
-                <option value="">-- Pick an industry --</option>
-                <option value="Refinery / Oil & Gas">Refinery / Oil & Gas</option>
-                <option value="Brewery / Beverage">Brewery / Beverage</option>
-                <option value="Dairy / CIP">Dairy / CIP</option>
-                <option value="Municipal Water">Municipal Water</option>
-                <option value="Pharmaceutical">Pharmaceutical</option>
-                <option value="Power Plant / Turbine">Power Plant / Turbine</option>
-                <option value="Chemical Processing">Chemical Processing</option>
-                <option value="Food & Beverage">Food & Beverage</option>
-                <option value="Hydraulic Systems">Hydraulic Systems</option>
-                <option value="Paint & Coatings">Paint & Coatings</option>
-                <option value="Petrochemical">Petrochemical</option>
-                <option value="Pulp & Paper">Pulp & Paper</option>
-                <option value="Semiconductor">Semiconductor</option>
-                <option value="Wastewater">Wastewater</option>
-            </select>
-            <select id="pregameSelect" class="chemical-select" style="display:none; width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:inherit; background:white; margin-top:8px;">
-                <option value="">-- Pick an industry --</option>
-                <option value="refinery">Refinery / Oil & Gas</option>
-                <option value="brewery">Brewery / Beverage</option>
-                <option value="dairy">Dairy / CIP</option>
-                <option value="municipal water">Municipal Water</option>
-                <option value="pharmaceutical">Pharmaceutical</option>
-                <option value="power plant">Power Plant / Turbine</option>
-                <option value="chemical processing">Chemical Processing</option>
-                <option value="food and beverage">Food & Beverage</option>
-                <option value="hydraulic">Hydraulic Systems</option>
-                <option value="paint and coatings">Paint & Coatings</option>
-                <option value="petrochemical">Petrochemical</option>
-                <option value="pulp and paper">Pulp & Paper</option>
-                <option value="semiconductor">Semiconductor</option>
-                <option value="wastewater">Wastewater</option>
             </select>
             <div class="search-tags" id="searchTags" style="display:none; margin-top:10px;">
                 <div style="font-size:11px; color:var(--text-light); margin-bottom:6px; font-weight:600;">Quick Search:</div>
