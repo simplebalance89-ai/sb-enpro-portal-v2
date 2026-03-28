@@ -771,8 +771,20 @@
 
     // ── Render product card ──
     window.renderProductCard = function (p) {
-        // Handle both camelCase and PascalCase/snake_case column names
+        // Track this product in history for compare dropdowns
         var pn = p.Part_Number || p.part_number || 'Product';
+        var desc = p.Description || p.description || '';
+        if (pn && pn !== 'Product') {
+            // Check if already in history
+            var exists = productsHistory.some(function(prod) { return prod.part === pn; });
+            if (!exists) {
+                productsHistory.push({ part: pn, description: desc });
+                // Keep only last 20 products
+                if (productsHistory.length > 20) productsHistory.shift();
+            }
+        }
+        
+        // Handle both camelCase and PascalCase/snake_case column names
         var desc = p.Description || p.description || '';
         var ext = p.Extended_Description || p.extended_description || '';
         var ptype = p.Product_Type || p.product_type || '';
@@ -1419,7 +1431,14 @@
 
         var html = '';
 
-        // Part A field — auto-fill if we have a pinned/last product
+        // Build dropdown options from products history
+        var optionsHtml = '<option value="">-- Select a product --</option>';
+        productsHistory.forEach(function(prod) {
+            var display = prod.part + (prod.description ? ' — ' + prod.description.substring(0, 40) : '');
+            optionsHtml += '<option value="' + esc(prod.part) + '">' + esc(display) + '</option>';
+        });
+
+        // Part A dropdown — auto-select if we have a pinned/last product
         var partA = '';
         if (sessionContext && sessionContext.pinnedPart) {
             partA = sessionContext.pinnedPart.Part_Number || '';
@@ -1427,14 +1446,16 @@
 
         html += '<div style="margin-bottom:16px;">';
         html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part A</label>';
-        html += '<input type="text" id="comparePartA" list="comparePartAList" value="' + (partA ? partA : '') + '" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
-        html += '<datalist id="comparePartAList"></datalist>';
+        html += '<select id="comparePartA" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += optionsHtml;
+        html += '</select>';
         html += '</div>';
 
         html += '<div style="margin-bottom:16px;">';
         html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part B</label>';
-        html += '<input type="text" id="comparePartB" list="comparePartBList" placeholder="Search or type part number..." style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
-        html += '<datalist id="comparePartBList"></datalist>';
+        html += '<select id="comparePartB" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += optionsHtml;
+        html += '</select>';
         html += '</div>';
 
         html += '<button onclick="runCompareSelector()" style="width:100%; padding:12px; background:var(--accent); color:white; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;">Compare Side-by-Side</button>';
@@ -1445,18 +1466,10 @@
         panel.classList.add('open');
         overlay.classList.add('active');
 
-        // Focus the empty field
-        var focusField = partA ? document.getElementById('comparePartB') : document.getElementById('comparePartA');
-        setTimeout(function() { focusField.focus(); }, 200);
-
-        // Add Enter key handlers
-        var partAInput = document.getElementById('comparePartA');
-        var partBInput = document.getElementById('comparePartB');
-        partAInput.onkeydown = function(e) { if (e.key === 'Enter') partBInput.focus(); };
-        partBInput.onkeydown = function(e) { if (e.key === 'Enter') runCompareSelector(); };
-        partAInput.oninput = function () { populateCompareDatalist('comparePartA', 'comparePartAList'); };
-        partBInput.oninput = function () { populateCompareDatalist('comparePartB', 'comparePartBList'); };
-        populateCompareDatalist('comparePartA', 'comparePartAList');
+        // Set Part A if we have a pinned part
+        if (partA) {
+            document.getElementById('comparePartA').value = partA;
+        }
     };
 
     window.runCompareSelector = function() {
@@ -1608,8 +1621,7 @@
         var items = stateLineItems(quoteStateData);
         var lineReady = items.length > 0;
         var quantityReady = items.length > 0 && items.every(function (item) { return !!item.quantity; });
-        var chemicalReady = !!(quoteStateData.request && quoteStateData.request.chemical);
-        var doneCount = [customerReady, lineReady, quantityReady, chemicalReady].filter(Boolean).length;
+        var doneCount = [customerReady, lineReady, quantityReady].filter(Boolean).length;
         var primary = items[0] ? items[0].part_number : '';
 
         var html = '<div class="quote-tracker-inner">';
@@ -1619,8 +1631,7 @@
         [
             { label: 'Customer', done: customerReady },
             { label: 'Line Item', done: lineReady },
-            { label: 'Quantity', done: quantityReady },
-            { label: 'Chemical / Context', done: chemicalReady }
+            { label: 'Quantity', done: quantityReady }
         ].forEach(function (step) {
             html += '<div class="qt-step ' + (step.done ? 'done' : '') + '">';
             html += '<span class="qt-check">' + (step.done ? '&#10003;' : '&#9675;') + '</span>';
@@ -1632,7 +1643,7 @@
         if (quoteStateData.ready_for_quote) {
             html += '<button class="qt-ready-btn" onclick="openQuoteModal()">Open Quote</button>';
         } else {
-            html += '<div class="qt-progress">' + doneCount + '/4 fields captured</div>';
+            html += '<div class="qt-progress">' + doneCount + '/3 fields captured</div>';
         }
 
         if (quoteStateData.open_questions && quoteStateData.open_questions.length) {
@@ -2911,11 +2922,12 @@
         flowRate: null,
         pressure: null,
         industry: null,
-        chemical: null,
         pinnedPart: null,
-        checkedChemical: false,
         compared: false
     };
+    
+    // Track products shown in chat for compare dropdowns
+    var productsHistory = [];
 
     function parseAndUpdateContext(text) {
         var lower = text.toLowerCase();
@@ -2988,8 +3000,7 @@
             { id: 'ctxMicron', val: sessionContext.micron },
             { id: 'ctxTemp', val: sessionContext.temperature },
             { id: 'ctxFlow', val: sessionContext.flowRate },
-            { id: 'ctxPSI', val: sessionContext.pressure },
-            { id: 'ctxChemical', val: sessionContext.chemical },
+            { id: 'ctxPSI', val: sessionContext.pressure }
         ];
 
         var filledCount = 0;
@@ -3000,16 +3011,16 @@
             if (f.val) {
                 valEl.textContent = f.val;
                 valEl.className = 'ctx-value ctx-filled';
-                if (f.id !== 'ctxChemical') filledCount++;
+                filledCount++;
             } else {
-                valEl.textContent = f.id === 'ctxChemical' ? '\u2014' : '?';
+                valEl.textContent = '?';
                 valEl.className = 'ctx-value ctx-empty';
             }
         });
 
         // Update spec count
         var countEl = document.getElementById('ctxSpecCount');
-        if (countEl) countEl.textContent = filledCount + '/6';
+        if (countEl) countEl.textContent = filledCount + '/5';
 
         // Show quote readiness only when product pinned or 3+ specs filled
         var readinessEl = document.getElementById('ctxReadiness');
@@ -3037,17 +3048,6 @@
             } else {
                 prodStep.classList.remove('done');
                 prodStep.querySelector('.ctx-check').innerHTML = '&#9675;';
-            }
-        }
-
-        var chemStep = document.getElementById('ctxStepChemical');
-        if (chemStep) {
-            if (sessionContext.checkedChemical) {
-                chemStep.classList.add('done');
-                chemStep.querySelector('.ctx-check').innerHTML = '&#10003;';
-            } else {
-                chemStep.classList.remove('done');
-                chemStep.querySelector('.ctx-check').innerHTML = '&#9675;';
             }
         }
 
