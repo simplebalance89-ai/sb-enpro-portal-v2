@@ -339,9 +339,11 @@ def format_product(row: pd.Series) -> dict:
         if not pd.isna(mfr) and mfr != "" and mfr != 0:
             product["Final_Manufacturer"] = mfr
 
-    # Price logic: Last_Sell_Price primary, Price_1 fallback
+    # Price logic: keep both raw prices and expose a primary display price.
     last_sell = _to_float(row.get("Last_Sell_Price", 0))
     price_1 = _to_float(row.get("Price_1", 0))
+    product["Last_Sell_Price"] = last_sell
+    product["Price_1"] = price_1
 
     if last_sell > 0:
         product["Price"] = f"${last_sell:,.2f}"

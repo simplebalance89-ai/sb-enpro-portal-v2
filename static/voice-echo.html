@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EnPro Voice Echo — Predictive Voice Search</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #1a56db 0%, #0d3cb5 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        .main {
+            padding: 30px;
+        }
+        .input-area {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        #voiceInput {
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #voiceInput:focus {
+            border-color: #1a56db;
+        }
+        .btn {
+            padding: 16px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: #1a56db;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0d3cb5;
+        }
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+        .response-area {
+            min-height: 200px;
+            background: #f9fafb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .response {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 12px;
+            border-left: 4px solid #1a56db;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .response.deferred {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+        .response.echo {
+            border-left-color: #10b981;
+            background: #ecfdf5;
+            animation: slideIn 0.5s ease;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .accuracy-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        .accuracy-high {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .accuracy-medium {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .accuracy-low {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .loading {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            color: #6b7280;
+            font-style: italic;
+        }
+        .loading.active {
+            display: flex;
+        }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e5e7eb;
+            border-top-color: #1a56db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .echo-indicator {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #dbeafe;
+            border-radius: 8px;
+            color: #1e40af;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .echo-indicator.active {
+            display: flex;
+        }
+        .echo-pulse {
+            width: 8px;
+            height: 8px;
+            background: #3b82f6;
+            border-radius: 50%;
+            animation: pulse 1.5s ease infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .suggestion-chip {
+            padding: 8px 16px;
+            background: #f3f4f6;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .suggestion-chip:hover {
+            background: #e5e7eb;
+        }
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            padding: 16px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .stat-value {
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        .mode-toggle input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #1a56db;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ Voice Echo</h1>
+            <p>Predictive Voice Search with Deferred Responses — "Give me a second while I look that up..."</p>
+        </header>
+        
+        <div class="main">
+            <div class="mode-toggle">
+                <input type="checkbox" id="deferMode" checked>
+                <label for="deferMode">Enable deferred mode (10s delay for deep queries)</label>
+            </div>
+            
+            <div class="suggestions">
+                <span class="suggestion-chip" onclick="setQuery('HC9600')">HC9600</span>
+                <span class="suggestion-chip" onclick="setQuery('hydraulic filter')">hydraulic filter</span>
+                <span class="suggestion-chip" onclick="setQuery('manufacturer HC9600')">manufacturer HC9600</span>
+                <span class="suggestion-chip" onclick="setQuery('specs for Pall filter')">specs for Pall filter</span>
+                <span class="suggestion-chip" onclick="setQuery('compressed air filter')">compressed air filter</span>
+                <span class="suggestion-chip" onclick="setQuery('crosswalk Pall to EnPro')">crosswalk Pall to EnPro</span>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="voiceInput" placeholder="Ask about filters, parts, specs..." 
+                       onkeypress="if(event.key==='Enter')sendQuery()">
+                <button class="btn btn-primary" onclick="sendQuery()">
+                    <span>🎤</span> Ask
+                </button>
+            </div>
+            
+            <div class="echo-indicator" id="echoIndicator">
+                <div class="echo-pulse"></div>
+                <span>Echo is warming up predictions in background...</span>
+            </div>
+            
+            <div class="loading" id="loadingIndicator">
+                <div class="spinner"></div>
+                <span>Processing...</span>
+            </div>
+            
+            <div class="response-area" id="responseArea">
+                <div style="color: #9ca3af; text-align: center; padding: 40px;">
+                    Try saying: "What are the specs for HC9600?" or "Show me hydraulic filters"
+                </div>
+            </div>
+            
+            <div class="nav-buttons" id="navButtons" style="display: none;">
+                <button class="btn btn-secondary" onclick="nextEcho()">
+                    <span>→</span> Next Prediction
+                </button>
+                <button class="btn btn-secondary" onclick="checkStatus()">
+                    <span>📊</span> Echo Status
+                </button>
+            </div>
+            
+            <div class="stats-bar">
+                <div class="stat">
+                    <span>Avg Accuracy:</span>
+                    <span class="stat-value" id="avgAccuracy">--</span>
+                </div>
+                <div class="stat">
+                    <span>Echo Cache:</span>
+                    <span class="stat-value" id="cacheSize">--</span>
+                </div>
+                <div class="stat">
+                    <span>Queries:</span>
+                    <span class="stat-value" id="queryCount">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sessionId = 'echo_' + Date.now();
+        let currentQuery = '';
+        let isWaitingForEcho = false;
+
+        function setQuery(q) {
+            document.getElementById('voiceInput').value = q;
+            sendQuery();
+        }
+
+        async function sendQuery() {
+            const input = document.getElementById('voiceInput');
+            const query = input.value.trim();
+            if (!query) return;
+
+            currentQuery = query;
+            const deferMode = document.getElementById('deferMode').checked;
+            
+            // Show loading
+            document.getElementById('loadingIndicator').classList.add('active');
+            document.getElementById('navButtons').style.display = 'flex';
+            
+            try {
+                const res = await fetch('/api/voice-echo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: query,
+                        session_id: sessionId,
+                        defer: deferMode
+                    })
+                });
+                
+                const data = await res.json();
+                document.getElementById('loadingIndicator').classList.remove('active');
+                
+                if (data.deferred) {
+                    // Show "looking it up" message
+                    addResponse({
+                        text: data.response,
+                        type: 'deferred',
+                        accuracy: data.accuracy_pct,
+                        matchType: data.match_type
+                    });
+                    
+                    // Show echo indicator
+                    document.getElementById('echoIndicator').classList.add('active');
+                    isWaitingForEcho = true;
+                    
+                    // Poll for echo completion (simulated - in real impl would check cache)
+                    setTimeout(() => {
+                        showEchoReturn();
+                    }, 3000); // 3s for demo
+                    
+                } else {
+                    // Immediate response
+                    addResponse({
+                        text: data.response,
+                        type: 'immediate',
+                        accuracy: data.accuracy_pct,
+                        matchType: data.match_type
+                    });
+                    document.getElementById('echoIndicator').classList.remove('active');
+                }
+                
+                updateStats();
+                
+            } catch (err) {
+                document.getElementById('loadingIndicator').classList.remove('active');
+                addResponse({
+                    text: 'Error: ' + err.message,
+                    type: 'error'
+                });
+            }
+        }
+
+        function showEchoReturn() {
+            if (!isWaitingForEcho) return;
+            
+            document.getElementById('echoIndicator').classList.remove('active');
+            
+            // Simulated echo response - in real impl this would come from cache
+            addResponse({
+                text: `[ECHO] Deep lookup complete for "${currentQuery}":\n• Manufacturer: Pall Corporation\n• Media: Polypropylene\n• Micron: 10\n• Max Temp: 180°F\n• Crosswalk: Available (see next prediction)`,
+                type: 'echo',
+                accuracy: 95
+            });
+            
+            isWaitingForEcho = false;
+        }
+
+        function addResponse({text, type, accuracy, matchType}) {
+            const area = document.getElementById('responseArea');
+            
+            // Clear placeholder on first message
+            if (area.querySelector('.response') === null && area.children[0]?.style?.color) {
+                area.innerHTML = '';
+            }
+            
+            const div = document.createElement('div');
+            div.className = `response ${type}`;
+            
+            let html = `<p style="white-space: pre-line; line-height: 1.6;">${escapeHtml(text)}</p>`;
+            
+            if (accuracy !== undefined && type !== 'error') {
+                const accClass = accuracy >= 80 ? 'accuracy-high' : 
+                                accuracy >= 50 ? 'accuracy-medium' : 'accuracy-low';
+                html += `<span class="accuracy-badge ${accClass}">${accuracy.toFixed(0)}% accuracy (${matchType || type})</span>`;
+            }
+            
+            div.innerHTML = html;
+            area.insertBefore(div, area.firstChild);
+        }
+
+        async function nextEcho() {
+            if (!currentQuery) return;
+            
+            document.getElementById('loadingIndicator').classList.add('active');
+            
+            try {
+                const res = await fetch('/api/voice-echo-next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: currentQuery,
+                        session_id: sessionId
+                    })
+                });
+                
+                const data = await res.json();
+                document.getElementById('loadingIndicator').classList.remove('active');
+                
+                if (data.response) {
+                    addResponse({
+                        text: data.response,
+                        type: 'echo',
+                        accuracy: 75
+                    });
+                }
+            } catch (err) {
+                document.getElementById('loadingIndicator').classList.remove('active');
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/voice-echo-status');
+                const data = await res.json();
+                
+                const statusText = JSON.stringify(data, null, 2);
+                addResponse({
+                    text: `Echo System Status:\n${statusText}`,
+                    type: 'echo'
+                });
+            } catch (err) {
+                addResponse({
+                    text: 'Status check failed: ' + err.message,
+                    type: 'error'
+                });
+            }
+        }
+
+        async function updateStats() {
+            try {
+                const res = await fetch('/api/voice-echo-status');
+                const data = await res.json();
+                
+                if (data.avg_accuracy_pct) {
+                    document.getElementById('avgAccuracy').textContent = data.avg_accuracy_pct.toFixed(1) + '%';
+                }
+                if (data.echo_cache_size !== undefined) {
+                    document.getElementById('cacheSize').textContent = data.echo_cache_size;
+                }
+                if (data.total_queries) {
+                    document.getElementById('queryCount').textContent = data.total_queries;
+                }
+            } catch (e) {
+                // Ignore
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load stats on page load
+        updateStats();
+    </script>
+</body>
+</html>

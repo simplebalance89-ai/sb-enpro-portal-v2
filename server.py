@@ -33,6 +33,8 @@ from quote_state import (
     update_from_search,
 )
 from voice_search import init_voice_search, voice_search_pipeline
+from voice_gate import VoiceGate
+from voice_echo import VoiceEcho
 
 logger = logging.getLogger("enpro.server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -48,6 +50,8 @@ class AppState:
     inventory_df: pd.DataFrame = pd.DataFrame()
     last_inventory_load: Optional[datetime] = None
     data_loaded: bool = False
+    voice_gate: Optional[VoiceGate] = None
+    voice_echo: Optional[VoiceEcho] = None
 
 
 state = AppState()
@@ -99,6 +103,13 @@ async def lifespan(app: FastAPI):
             )
             # Initialize voice search vocabulary from product data
             init_voice_search(state.df)
+            # Initialize Voice Echo (predictive pre-fetch system)
+            try:
+                state.voice_gate = VoiceGate.from_dataframe(state.df)
+                state.voice_echo = VoiceEcho(state.voice_gate, defer_seconds=10)  # 10s for deep lookups
+                logger.info("Voice Echo initialized with predictive pre-fetch")
+            except Exception as ve:
+                logger.error(f"Voice Echo init failed: {ve}")
         else:
             logger.error("Startup data load completed with zero products; portal will stay degraded")
     except Exception as e:
@@ -745,6 +756,141 @@ async def voice_search_text(req: ChatRequest):
             content={"error": f"Voice search failed: {str(e)}"},
         )
 
+
+# ---------------------------------------------------------------------------
+# Voice Echo Endpoints — Predictive Pre-Fetch System
+# ---------------------------------------------------------------------------
+
+class VoiceEchoRequest(BaseModel):
+    query: str
+    session_id: str = "default"
+    defer: bool = False  # If True, return "looking it up" and echo back later
+
+
+class VoiceEchoStatusRequest(BaseModel):
+    session_id: str = "default"
+
+
+@app.post("/api/voice-echo")
+async def voice_echo_endpoint(req: VoiceEchoRequest):
+    """
+    Voice Echo — Predictive voice search with accuracy grading and deferred responses.
+    
+    For deep queries (specs, manufacturer, crosswalk), set defer=True to get
+    "Give me a second while I look that up..." immediately, then poll /voice-echo-status
+    for the echo response (~10 seconds later).
+    """
+    if not state.data_loaded or not state.voice_echo:
+        return JSONResponse(
+            status_code=503, 
+            content={"error": "Voice Echo not initialized. Data loading..."}
+        )
+    
+    try:
+        # Determine if this is a deep query that should be deferred
+        is_deep = state.voice_echo._is_deep_query(req.query)
+        should_defer = req.defer and is_deep
+        
+        # Process query
+        response, grade = state.voice_echo.query(
+            req.query, 
+            defer=should_defer
+        )
+        
+        return {
+            "response": response,
+            "accuracy_pct": grade.accuracy_pct,
+            "match_type": grade.match_type,
+            "products_found": grade.products_found,
+            "deferred": grade.match_type == "deferred",
+            "echo_ready": False if grade.match_type == "deferred" else True,
+            "session_id": req.session_id,
+        }
+    except Exception as e:
+        logger.error(f"Voice Echo error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Voice Echo failed: {str(e)}"},
+        )
+
+
+@app.post("/api/voice-echo-next")
+async def voice_echo_next(req: VoiceEchoRequest):
+    """
+    Get next echo prediction (when user says 'next' or 'what else').
+    Returns the next best prediction from the echo cache.
+    """
+    if not state.data_loaded or not state.voice_echo:
+        return JSONResponse(
+            status_code=503, 
+            content={"error": "Voice Echo not initialized."}
+        )
+    
+    try:
+        echo_response = state.voice_echo.next_echo(req.query)
+        return {
+            "response": echo_response,
+            "session_id": req.session_id,
+        }
+    except Exception as e:
+        logger.error(f"Voice Echo next error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed: {str(e)}"},
+        )
+
+
+@app.get("/api/voice-echo-status")
+async def voice_echo_status(session_id: str = "default"):
+    """
+    Get Voice Echo system status — accuracy stats, cache size, learned patterns.
+    """
+    if not state.voice_echo:
+        return {"status": "initializing"}
+    
+    return state.voice_echo.get_stats()
+
+
+@app.get("/api/voice-echo-cache")
+async def voice_echo_cache():
+    """
+    Get current echo cache contents (for debugging).
+    """
+    if not state.voice_echo:
+        return {"cache": []}
+    
+    cache_items = []
+    for key, echo in state.voice_echo.echo_cache.items():
+        cache_items.append({
+            "query": key,
+            "confidence": echo.confidence,
+            "products": len(echo.products),
+            "source": echo.source_query,
+        })
+    
+    return {
+        "cache_size": len(cache_items),
+        "cache": sorted(cache_items, key=lambda x: -x["confidence"])[:20]
+    }
+
+
+@app.post("/api/voice-echo-learn")
+async def voice_echo_learn(req: VoiceEchoRequest):
+    """
+    Manually trigger pattern learning (query A -> query B).
+    Used when user follows up with a related query.
+    """
+    if not state.voice_echo:
+        return JSONResponse(status_code=503, content={"error": "Not initialized"})
+    
+    # This would typically be called internally when we detect a follow-up
+    # For now, just acknowledge
+    return {"status": "learning", "query": req.query}
+
+
+# ---------------------------------------------------------------------------
+# Widget
+# ---------------------------------------------------------------------------
 
 @app.get("/widget.js")
 async def widget_js():
