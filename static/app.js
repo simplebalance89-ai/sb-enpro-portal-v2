@@ -286,7 +286,7 @@
                 var res = await fetch(API_BASE + '/api/lookup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ part_number: suggestions[0].Part_Number })
+                    body: JSON.stringify({ part_number: suggestions[0].Part_Number, session_id: sessionId })
                 });
                 var data = await res.json();
                 if (data.found && data.product) {
@@ -365,6 +365,10 @@
             return;
         }
 
+        if (data.quote_state) {
+            syncQuoteState(data.quote_state);
+        }
+
         // Track compare intent for context card
         if (data.intent === 'compare' || (data.table && data.table.title && data.table.title.toLowerCase().includes('compare'))) {
             sessionContext.compared = true;
@@ -428,7 +432,7 @@
             appendCard(renderTableCard(data.table));
         } else if (data.product) {
             appendCard(renderProductCard(data.product));
-            appendFollowUps(data.product.part_number || '');
+            appendFollowUps(data.product.part_number || data.product.Part_Number || '');
         } else if (data.options && Array.isArray(data.options)) {
             if (data.text) appendMessage('bot', formatMarkdown(data.text));
             appendNumberedOptions(data.options);
@@ -978,9 +982,6 @@
 
         if (!partNumber) return;
 
-        // Update quote tracker
-        updateQuoteTracker('part', partNumber);
-
         // Build contextual action panel
         var panelId = 'actionPanel_' + Date.now();
         var panel = document.createElement('div');
@@ -1021,9 +1022,6 @@
             el.classList.add('action-done');
             el.style.pointerEvents = 'none';
         }
-        // Track in quote progress
-        updateQuoteTracker(action, partNumber);
-
         switch (action) {
             case 'chemical':
                 sendMessage('chemical compatibility check for part ' + partNumber);
@@ -1138,7 +1136,6 @@
 
     window.runCompareFromPanel = function (sourcePn, targetPn) {
         closeComparePanel();
-        updateQuoteTracker('compare', sourcePn);
         sendMessage('compare ' + sourcePn + ' vs ' + targetPn);
     };
 
@@ -1146,7 +1143,6 @@
         var input = document.getElementById('compareManualInput');
         if (!input || !input.value.trim()) return;
         closeComparePanel();
-        updateQuoteTracker('compare', sourcePn);
         sendMessage('compare ' + sourcePn + ' vs ' + input.value.trim());
     };
 
@@ -1215,34 +1211,116 @@
         var input = document.getElementById('compareInput_' + panelId);
         if (!input || !input.value.trim()) return;
         var compareTo = input.value.trim();
-        updateQuoteTracker('compare', partNumber);
         sendMessage('compare ' + partNumber + ' vs ' + compareTo);
     };
 
     // ── Quote Readiness Tracker ──
-    var quoteState = {
-        part: null,
-        chemical: false,
-        compare: false,
-        similar: false,
-        manufacturer: false
-    };
+    var quoteStateData = null;
 
-    function updateQuoteTracker(action, partNumber) {
-        if (action === 'part') {
-            quoteState.part = partNumber;
-            quoteState.price = false;
-            quoteState.chemical = false;
-            quoteState.compare = false;
-            quoteState.manufacturer = false;
-        } else {
-            quoteState[action] = true;
+    function stateLineItems(state) {
+        if (!state || !Array.isArray(state.line_items)) return [];
+        return state.line_items
+            .filter(function (item) { return item && item.resolved && item.resolved.part_number; })
+            .map(function (item) {
+                return {
+                    part_number: item.resolved.part_number || '',
+                    description: item.resolved.description || item.raw_input.description || '',
+                    quantity: item.quantity || item.raw_input.quantity || 1,
+                    price: item.resolved.price || '',
+                    source: 'conversation'
+                };
+            });
+    }
+
+    function getCombinedQuoteItems() {
+        var combined = [];
+        var seen = {};
+
+        stateLineItems(quoteStateData).forEach(function (item) {
+            var key = (item.part_number || '').toUpperCase();
+            if (!key) return;
+            seen[key] = item;
+            combined.push(item);
+        });
+
+        quoteItems.forEach(function (item) {
+            var key = (item.part_number || '').toUpperCase();
+            if (!key) return;
+            if (seen[key]) {
+                seen[key].quantity = item.quantity || seen[key].quantity || 1;
+                if (item.price) seen[key].price = item.price;
+                if (item.description) seen[key].description = item.description;
+                seen[key].source = 'manual+conversation';
+            } else {
+                combined.push(item);
+                seen[key] = item;
+            }
+        });
+
+        return combined;
+    }
+
+    function buildQuoteNotesFromState() {
+        if (!quoteStateData) return quoteData.notes || '';
+
+        var notes = [];
+        if (quoteData.notes) notes.push(quoteData.notes);
+
+        if (quoteStateData.request) {
+            if (quoteStateData.request.application) notes.push('Application: ' + quoteStateData.request.application);
+            if (quoteStateData.request.chemical) notes.push('Chemical: ' + quoteStateData.request.chemical);
+            if (quoteStateData.request.urgency) notes.push('Urgency: ' + quoteStateData.request.urgency);
         }
+
+        if (Array.isArray(quoteStateData.open_questions) && quoteStateData.open_questions.length) {
+            notes.push('Open questions: ' + quoteStateData.open_questions.join('; '));
+        }
+
+        return notes.filter(Boolean).join('\n');
+    }
+
+    function hydrateQuoteDataFromState() {
+        var customer = quoteStateData && quoteStateData.customer ? quoteStateData.customer : {};
+        quoteData.company = quoteData.company || customer.company_name || customer.account_name || '';
+        quoteData.contact_name = quoteData.contact_name || customer.contact_name || '';
+        quoteData.contact_email = quoteData.contact_email || customer.email || '';
+        quoteData.contact_phone = quoteData.contact_phone || customer.phone || '';
+        quoteData.ship_to = quoteData.ship_to || customer.ship_to || '';
+        quoteData.items = getCombinedQuoteItems();
+        quoteData.notes = buildQuoteNotesFromState();
+    }
+
+    async function fetchQuoteState() {
+        try {
+            var res = await fetch(API_BASE + '/api/quote-state/' + encodeURIComponent(sessionId));
+            if (!res.ok) return null;
+            var data = await res.json();
+            if (data && data.quote_state) {
+                syncQuoteState(data.quote_state);
+                return data.quote_state;
+            }
+        } catch (err) {
+            console.error('Quote state fetch error:', err);
+        }
+        return null;
+    }
+
+    function syncQuoteState(state) {
+        quoteStateData = state || null;
+        hydrateQuoteDataFromState();
         renderQuoteTracker();
+        renderQuoteDrawer();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) {
+            renderQuoteStep();
+        }
     }
 
     function renderQuoteTracker() {
-        if (!quoteState.part) {
+        var hasState = quoteStateData && (
+            stateLineItems(quoteStateData).length ||
+            (quoteStateData.customer && (quoteStateData.customer.company_name || quoteStateData.customer.account_name))
+        );
+        if (!hasState) {
             var existing = document.getElementById('quoteTracker');
             if (existing) existing.remove();
             return;
@@ -1258,21 +1336,24 @@
             inputArea.parentNode.insertBefore(tracker, inputArea);
         }
 
-        var steps = [
-            { key: 'part', label: 'Part', done: !!quoteState.part },
-            { key: 'chemical', label: 'Chemical', done: quoteState.chemical },
-            { key: 'compare', label: 'Compare', done: quoteState.compare },
-            { key: 'similar', label: 'Alternatives', done: quoteState.similar }
-        ];
-
-        var doneCount = steps.filter(function (s) { return s.done; }).length;
-        var isReady = doneCount >= 3; // Part + 2 more = quote ready
+        var customerReady = !!(quoteStateData.customer && (quoteStateData.customer.company_name || quoteStateData.customer.account_name));
+        var items = stateLineItems(quoteStateData);
+        var lineReady = items.length > 0;
+        var quantityReady = items.length > 0 && items.every(function (item) { return !!item.quantity; });
+        var chemicalReady = !!(quoteStateData.request && quoteStateData.request.chemical);
+        var doneCount = [customerReady, lineReady, quantityReady, chemicalReady].filter(Boolean).length;
+        var primary = items[0] ? items[0].part_number : '';
 
         var html = '<div class="quote-tracker-inner">';
-        html += '<div class="qt-title">Quote Readiness Tracker</div>';
-        html += '<div class="quote-tracker-part">' + esc(quoteState.part) + '</div>';
+        html += '<div class="qt-title">Quote State</div>';
+        html += '<div class="quote-tracker-part">' + esc(primary || 'Conversation quote in progress') + '</div>';
         html += '<div class="quote-tracker-steps">';
-        steps.forEach(function (step) {
+        [
+            { label: 'Customer', done: customerReady },
+            { label: 'Line Item', done: lineReady },
+            { label: 'Quantity', done: quantityReady },
+            { label: 'Chemical / Context', done: chemicalReady }
+        ].forEach(function (step) {
             html += '<div class="qt-step ' + (step.done ? 'done' : '') + '">';
             html += '<span class="qt-check">' + (step.done ? '&#10003;' : '&#9675;') + '</span>';
             html += '<span class="qt-label">' + step.label + '</span>';
@@ -1280,10 +1361,14 @@
         });
         html += '</div>';
 
-        if (isReady) {
-            html += '<button class="qt-ready-btn" onclick="sendMessage(\'quote ready for ' + esc(quoteState.part) + '\')">QUOTE READY</button>';
+        if (quoteStateData.ready_for_quote) {
+            html += '<button class="qt-ready-btn" onclick="openQuoteModal()">Open Quote</button>';
         } else {
-            html += '<div class="qt-progress">' + doneCount + '/3 steps</div>';
+            html += '<div class="qt-progress">' + doneCount + '/4 fields captured</div>';
+        }
+
+        if (quoteStateData.open_questions && quoteStateData.open_questions.length) {
+            html += '<div class="qt-progress" style="margin-top:8px;">Next: ' + esc(quoteStateData.open_questions[0]) + '</div>';
         }
 
         html += '</div>';
@@ -1293,12 +1378,24 @@
     // Reset quote tracker on new chat
     var origNewChat = window.newChat;
     window.newChat = function () {
-        quoteState = { part: null, chemical: false, compare: false, similar: false, manufacturer: false };
+        var previousSessionId = sessionId;
+        quoteStateData = null;
+        quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
+        quoteItems = [];
+        localStorage.removeItem('enpro_quote_items');
         adminStats = { queries: 0, cost: 0, totalLatency: 0, errors: 0, reports: 0 };
         updateAdminFooter();
         var tracker = document.getElementById('quoteTracker');
         if (tracker) tracker.remove();
         origNewChat();
+        fetch(API_BASE + '/api/quote-state/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: previousSessionId || sessionId })
+        }).catch(function (err) {
+            console.error('Quote state reset failed:', err);
+        });
+        renderQuoteDrawer();
     };
 
     // ── Numbered options ──
@@ -2146,8 +2243,10 @@
         notes: ''
     };
 
-    window.openQuoteModal = function () {
+    window.openQuoteModal = async function () {
         quoteData.step = 0;
+        await fetchQuoteState();
+        hydrateQuoteDataFromState();
         document.getElementById('quoteModalOverlay').classList.add('active');
         renderQuoteStep();
     };
@@ -2162,6 +2261,7 @@
         var prevBtn = document.getElementById('quotePrevBtn');
         var nextBtn = document.getElementById('quoteNextBtn');
         var titleEl = document.getElementById('quoteModalTitle');
+        quoteData.items = getCombinedQuoteItems();
 
         var totalSteps = 3;
 
@@ -2193,7 +2293,7 @@
 
             html += '<div id="quoteItemsList">';
             if (quoteData.items.length === 0) {
-                html += '<div style="color:var(--text-light); font-size:13px; padding:8px 0;">No items added yet. Add a part number below.</div>';
+                html += '<div style="color:var(--text-light); font-size:13px; padding:8px 0;">No items captured yet. Keep talking or add a part number below.</div>';
             } else {
                 quoteData.items.forEach(function (item, idx) {
                     html += '<div class="quote-item-row">';
@@ -2275,7 +2375,7 @@
         fetch(API_BASE + '/api/lookup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ part_number: pn })
+            body: JSON.stringify({ part_number: pn, session_id: sessionId })
         })
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -2285,25 +2385,51 @@
                 item.price = data.product.Price || '';
                 item.part_number = data.product.Part_Number || pn;
             }
-            quoteData.items.push(item);
+            quoteItems.push(item);
+            localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+            if (data.quote_state) syncQuoteState(data.quote_state);
+            hydrateQuoteDataFromState();
             renderQuoteStep();
         })
         .catch(function () {
-            quoteData.items.push({ part_number: pn, quantity: 1, description: '', price: '' });
+            quoteItems.push({ part_number: pn, quantity: 1, description: '', price: '' });
+            localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+            hydrateQuoteDataFromState();
             renderQuoteStep();
         });
     };
 
     window.removeQuoteItem = function (idx) {
         quoteData.items.splice(idx, 1);
+        quoteItems = quoteData.items.map(function (item) {
+            return {
+                part_number: item.part_number,
+                description: item.description || '',
+                price: item.price || '',
+                quantity: item.quantity || 1
+            };
+        });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        renderQuoteDrawer();
         renderQuoteStep();
     };
 
     window.updateQuoteItemQty = function (idx, val) {
         quoteData.items[idx].quantity = parseInt(val) || 1;
+        quoteItems = quoteData.items.map(function (item) {
+            return {
+                part_number: item.part_number,
+                description: item.description || '',
+                price: item.price || '',
+                quantity: item.quantity || 1
+            };
+        });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        renderQuoteDrawer();
     };
 
     function submitQuote() {
+        hydrateQuoteDataFromState();
         fetch(API_BASE + '/api/quote', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2325,6 +2451,9 @@
                 appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>EnPro will follow up within 1 business day.<br>Contact: service@enproinc.com | 1 (800) 323-2416');
                 // Reset
                 quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
+                quoteItems = [];
+                localStorage.removeItem('enpro_quote_items');
+                renderQuoteDrawer();
             } else {
                 alert('Quote save failed. Try again.');
             }
@@ -2716,8 +2845,8 @@
         var pn = header ? header.textContent.replace('Part Number: ', '').trim() : '';
         if (!pn) return;
 
-        // Check duplicate
-        if (quoteItems.some(function (q) { return q.part_number === pn; })) {
+        // Check duplicate across manual and conversational quote items
+        if (getCombinedQuoteItems().some(function (q) { return q.part_number === pn; })) {
             btn.textContent = 'Already added';
             return;
         }
@@ -2744,41 +2873,53 @@
         btn.style.pointerEvents = 'none';
     };
 
-    window.removeFromQuote = function (idx) {
-        quoteItems.splice(idx, 1);
+    window.removeFromQuote = function (partNumber) {
+        quoteItems = quoteItems.filter(function (item) { return item.part_number !== partNumber; });
         localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        quoteData.items = getCombinedQuoteItems();
         renderQuoteDrawer();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) renderQuoteStep();
     };
 
-    window.updateQuoteQty = function (idx, val) {
-        quoteItems[idx].quantity = parseInt(val) || 1;
+    window.updateQuoteQty = function (partNumber, val) {
+        var nextQty = parseInt(val) || 1;
+        var manualItem = quoteItems.find(function (item) { return item.part_number === partNumber; });
+        if (manualItem) {
+            manualItem.quantity = nextQty;
+        } else {
+            quoteItems.push({ part_number: partNumber, description: '', price: '', quantity: nextQty });
+        }
         localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        quoteData.items = getCombinedQuoteItems();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) renderQuoteStep();
+        renderQuoteDrawer();
     };
 
     function renderQuoteDrawer() {
         var body = document.getElementById('quoteDrawerBody');
         var countEl = document.getElementById('quoteItemCount');
         var tabEl = document.getElementById('quoteTab');
+        var combinedItems = getCombinedQuoteItems();
 
         if (!body) return;
 
-        if (quoteItems.length === 0) {
-            body.innerHTML = '<div class="quote-drawer-empty">Click "Add to Quote" on any product card to start building.</div>';
+        if (combinedItems.length === 0) {
+            body.innerHTML = '<div class="quote-drawer-empty">Talk through the quote or click "Add to Quote" on any product card to start building.</div>';
         } else {
             var html = '';
-            quoteItems.forEach(function (item, idx) {
+            combinedItems.forEach(function (item) {
                 html += '<div class="quote-drawer-item">';
                 html += '<div class="qdi-pn">' + esc(item.part_number) + '</div>';
                 html += '<div class="qdi-price">' + esc(item.price || '') + '</div>';
-                html += '<div class="qdi-qty"><input type="number" min="1" value="' + (item.quantity || 1) + '" onchange="updateQuoteQty(' + idx + ', this.value)"></div>';
-                html += '<button class="qdi-remove" onclick="removeFromQuote(' + idx + ')">&times;</button>';
+                html += '<div class="qdi-qty"><input type="number" min="1" value="' + (item.quantity || 1) + '" onchange="updateQuoteQty(\'' + esc(item.part_number).replace(/'/g, "\\'") + '\', this.value)"></div>';
+                html += '<button class="qdi-remove" onclick="removeFromQuote(\'' + esc(item.part_number).replace(/'/g, "\\'") + '\')">&times;</button>';
                 html += '</div>';
             });
             body.innerHTML = html;
         }
 
-        if (countEl) countEl.textContent = quoteItems.length;
-        if (tabEl) tabEl.innerHTML = '&#128221; Quote (' + quoteItems.length + ')';
+        if (countEl) countEl.textContent = combinedItems.length;
+        if (tabEl) tabEl.innerHTML = '&#128221; Quote (' + combinedItems.length + ')';
     }
 
     // Render on load

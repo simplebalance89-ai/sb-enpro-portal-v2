@@ -23,6 +23,15 @@ from search import search_products, lookup_part, suggest_parts
 from router import handle_message
 from azure_client import health_check as azure_health_check, close_client
 from governance import run_pre_checks
+from quote_state import (
+    merge_into_quote_request,
+    reset_state as reset_quote_state,
+    snapshot as snapshot_quote_state,
+    update_from_chemical,
+    update_from_lookup,
+    update_from_message,
+    update_from_search,
+)
 from voice_search import init_voice_search, voice_search_pipeline
 
 logger = logging.getLogger("enpro.server")
@@ -140,19 +149,23 @@ class ChatRequest(BaseModel):
 
 class LookupRequest(BaseModel):
     part_number: str
+    session_id: str = "default"
 
 
 class SearchRequest(BaseModel):
     query: str
     field: Optional[str] = None
+    session_id: str = "default"
 
 
 class ChemicalRequest(BaseModel):
     chemical: str
+    session_id: str = "default"
 
 
 class SuggestRequest(BaseModel):
     query: str
+    session_id: str = "default"
 
 
 class ReportRequest(BaseModel):
@@ -194,6 +207,7 @@ async def chat(req: ChatRequest):
         )
 
     try:
+        update_from_message(req.session_id, req.message, state.df)
         result = await handle_message(
             message=req.message,
             session_id=req.session_id,
@@ -201,6 +215,7 @@ async def chat(req: ChatRequest):
             df=state.df,
             chemicals_df=state.chemicals_df,
         )
+        result["quote_state"] = snapshot_quote_state(req.session_id)
         return result
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
@@ -221,8 +236,17 @@ async def lookup(req: LookupRequest):
 
     product = lookup_part(state.df, req.part_number)
     if product:
-        return {"found": True, "product": product}
-    return {"found": False, "message": f"No product found for '{req.part_number}'."}
+        return {
+            "found": True,
+            "product": product,
+            "quote_state": update_from_lookup(req.session_id, product),
+        }
+    update_from_message(req.session_id, req.part_number, state.df, intent="lookup")
+    return {
+        "found": False,
+        "message": f"No product found for '{req.part_number}'.",
+        "quote_state": snapshot_quote_state(req.session_id),
+    }
 
 
 @app.post("/api/search")
@@ -232,6 +256,8 @@ async def search(req: SearchRequest):
         return JSONResponse(status_code=503, content={"error": "Data not loaded."})
 
     result = search_products(state.df, req.query, field=req.field)
+    update_from_message(req.session_id, req.query, state.df, intent="search")
+    result["quote_state"] = update_from_search(req.session_id, req.query, result.get("results", []))
     return result
 
 
@@ -244,13 +270,15 @@ async def chemical_check(req: ChemicalRequest):
         return JSONResponse(status_code=503, content={"error": "Data not loaded."})
 
     try:
+        update_from_message(req.session_id, req.chemical, state.df, intent="chemical")
         result = await handle_message(
             message=f"Chemical compatibility: {req.chemical}",
-            session_id="chemical_check",
+            session_id=req.session_id or "chemical_check",
             mode="standard",
             df=state.df,
             chemicals_df=state.chemicals_df,
         )
+        result["quote_state"] = update_from_chemical(req.session_id, req.chemical)
         return result
     except Exception as e:
         logger.error(f"Chemical check error: {e}")
@@ -379,6 +407,18 @@ async def chemicals_list():
     # Remove empty strings
     chemicals = [c for c in chemicals if c and c != ""]
     return {"chemicals": chemicals}
+
+
+@app.get("/api/quote-state/{session_id}")
+async def get_quote_state(session_id: str):
+    """Return the background quote state for the active session."""
+    return {"quote_state": snapshot_quote_state(session_id)}
+
+
+@app.post("/api/quote-state/reset")
+async def quote_state_reset(req: QuoteStateResetRequest):
+    """Reset background quote state for a session."""
+    return {"quote_state": reset_quote_state(req.session_id)}
 
 
 @app.post("/api/report")
@@ -533,21 +573,38 @@ class QuoteRequest(BaseModel):
     session_id: str = ""
 
 
+class QuoteStateResetRequest(BaseModel):
+    session_id: str
+
+
 @app.post("/api/quote")
 async def save_quote(req: QuoteRequest):
     """Save a quote draft. Optionally emails to Peter."""
     import os
     import json
 
+    merged = merge_into_quote_request(
+        req.session_id,
+        {
+            "company": req.company,
+            "contact_name": req.contact_name,
+            "contact_email": req.contact_email,
+            "contact_phone": req.contact_phone,
+            "ship_to": req.ship_to,
+            "items": req.items,
+            "notes": req.notes,
+        },
+    )
+
     quote = {
         "id": f"Q-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-        "company": req.company,
-        "contact_name": req.contact_name,
-        "contact_email": req.contact_email,
-        "contact_phone": req.contact_phone,
-        "ship_to": req.ship_to,
-        "items": req.items,
-        "notes": req.notes,
+        "company": merged.get("company", ""),
+        "contact_name": merged.get("contact_name", ""),
+        "contact_email": merged.get("contact_email", ""),
+        "contact_phone": merged.get("contact_phone", ""),
+        "ship_to": merged.get("ship_to", ""),
+        "items": merged.get("items", []),
+        "notes": merged.get("notes", ""),
         "session_id": req.session_id,
         "timestamp": datetime.utcnow().isoformat(),
         "status": "draft",
