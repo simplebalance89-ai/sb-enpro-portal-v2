@@ -3317,21 +3317,27 @@
             return true;
         }
         
-        // Send command
+        // Send command - works like clicking the send button
         if (/^send$|^send it$|^submit$/.test(lower)) {
+            stopListening(); // Stop mic first
             var input = document.getElementById('userInput');
             if (input && input.value.trim()) {
-                sendMessage(input.value.trim());
+                var text = input.value.trim();
                 input.value = '';
+                // Small delay to let mic stop
+                setTimeout(function() {
+                    sendMessage(text);
+                }, 100);
             }
             return true;
         }
         
-        // Hang up / Cancel command
+        // Hang up - cancels mic, clears input, no message sent
         if (/^hang up$|^cancel$|^clear$|^never mind$|^nevermind$/.test(lower)) {
+            stopListening(); // Stop mic immediately
             var input = document.getElementById('userInput');
             if (input) input.value = '';
-            appendMessage('bot', '<em>Cancelled.</em>');
+            // Don't show any message, just silently cancel
             return true;
         }
         
