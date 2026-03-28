@@ -4,14 +4,18 @@ Loads static crosswalk, live inventory, and chemical crosswalk from Azure Blob S
 Merges static specs with live inventory on Part_Number.
 """
 
+import io
 import logging
 import os
 
 import pandas as pd
+from azure.storage.blob import BlobServiceClient
 
 logger = logging.getLogger("enpro.data_loader")
 
 SAS = os.environ.get("AZURE_BLOB_SAS", "")
+CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
+CONTAINER = os.environ.get("AZURE_BLOB_CONTAINER", "fm-data")
 BASE = os.environ.get(
     "AZURE_BLOB_BASE",
     "https://enproaidatav1.blob.core.windows.net/fm-data",
@@ -25,20 +29,29 @@ def _blob_url(filename: str) -> str:
     return f"{BASE}/{filename}{sep}{token}"
 
 
+def _read_csv(filename: str, **kwargs) -> pd.DataFrame:
+    """Read a CSV from Blob Storage using connection string first, SAS URL fallback second."""
+    if CONNECTION_STRING:
+        blob_service = BlobServiceClient.from_connection_string(CONNECTION_STRING)
+        blob_client = blob_service.get_blob_client(container=CONTAINER, blob=filename)
+        data = blob_client.download_blob().readall()
+        return pd.read_csv(io.BytesIO(data), dtype=str, **kwargs).fillna("")
+
+    return pd.read_csv(_blob_url(filename), dtype=str, **kwargs).fillna("")
+
+
 def load_static() -> pd.DataFrame:
     """Load static crosswalk CSV from Azure Blob. Cached at startup."""
-    url = _blob_url("static_crosswalk.csv")
     logger.info("Loading static crosswalk from Azure Blob...")
     try:
-        df = pd.read_csv(url, dtype=str).fillna("")
+        df = _read_csv("static_crosswalk.csv")
         logger.info(f"Static crosswalk loaded: {len(df)} rows, {len(df.columns)} columns")
         return df
     except Exception as e:
         logger.warning(f"Failed to load static crosswalk: {e}")
-        fallback_url = _blob_url("inventory_live.csv")
         logger.info("Falling back to inventory_live.csv for static product data...")
         try:
-            df = pd.read_csv(fallback_url, dtype=str).fillna("")
+            df = _read_csv("inventory_live.csv")
             logger.info(f"Static fallback loaded: {len(df)} rows, {len(df.columns)} columns")
             return df
         except Exception as fallback_error:
@@ -48,10 +61,9 @@ def load_static() -> pd.DataFrame:
 
 def load_inventory() -> pd.DataFrame:
     """Load live inventory CSV from Azure Blob. Refreshed hourly."""
-    url = _blob_url("inventory_live.csv")
     logger.info("Loading live inventory from Azure Blob...")
     try:
-        df = pd.read_csv(url, dtype=str).fillna("")
+        df = _read_csv("inventory_live.csv")
         logger.info(f"Live inventory loaded: {len(df)} rows")
         return df
     except Exception as e:
@@ -61,16 +73,15 @@ def load_inventory() -> pd.DataFrame:
 
 def load_chemicals() -> pd.DataFrame:
     """Load chemical crosswalk CSV from Azure Blob. Cached at startup."""
-    url = _blob_url("chemical_crosswalk.csv")
     logger.info("Loading chemical crosswalk from Azure Blob...")
     try:
-        df = pd.read_csv(url, dtype=str, encoding="latin-1").fillna("")
+        df = _read_csv("chemical_crosswalk.csv", encoding="latin-1")
         logger.info(f"Chemical crosswalk loaded: {len(df)} rows")
         return df
     except Exception as e:
         logger.error(f"Failed to load chemical crosswalk (trying fallback): {e}")
         try:
-            df = pd.read_csv(url, dtype=str, encoding="utf-8", errors="replace").fillna("")
+            df = _read_csv("chemical_crosswalk.csv", encoding="utf-8", encoding_errors="replace")
             logger.info(f"Chemical crosswalk loaded (fallback): {len(df)} rows")
             return df
         except Exception as e2:
