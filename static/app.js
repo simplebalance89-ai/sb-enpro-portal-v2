@@ -175,10 +175,6 @@
                 modal: 'lookup'
             });
             actions.push({
-                label: 'Supplier / Alt code',
-                modal: 'supplier'
-            });
-            actions.push({
                 label: 'Compare parts',
                 modal: 'compare'
             });
@@ -190,10 +186,6 @@
             actions.push({
                 label: 'Lookup part number',
                 modal: 'lookup'
-            });
-            actions.push({
-                label: 'Supplier / Alt code',
-                modal: 'supplier'
             });
             actions.push({
                 label: 'Compare parts',
@@ -247,10 +239,6 @@
             actions.push({
                 label: 'What are you trying to look for?',
                 query: 'lookup'
-            });
-            actions.push({
-                label: 'Supplier / Alt code',
-                modal: 'supplier'
             });
         }
 
