@@ -1841,29 +1841,27 @@
     }
 
     function applyPregameWizardStep() {
-        console.log('applyPregameWizardStep called, step:', pregameStep);
         modalTitle.textContent = 'Customer Pre Game — Meeting Prep';
         
-        // Hide all special inputs first
+        // Hide all special inputs first (safely - check if element exists)
         modalInput.style.display = 'none';
-        document.getElementById('industrySelect').style.display = 'none';
-        document.getElementById('specSelects').style.display = 'none';
-        document.getElementById('chemicalSelect').style.display = 'none';
-        document.getElementById('manufacturerSelect').style.display = 'none';
-        document.getElementById('productTypeSelect').style.display = 'none';
-        document.getElementById('searchTags').style.display = 'none';
+        var el;
+        el = document.getElementById('industrySelect'); if (el) el.style.display = 'none';
+        el = document.getElementById('specSelects'); if (el) el.style.display = 'none';
+        el = document.getElementById('chemicalSelect'); if (el) el.style.display = 'none';
+        el = document.getElementById('manufacturerSelect'); if (el) el.style.display = 'none';
+        el = document.getElementById('productTypeSelect'); if (el) el.style.display = 'none';
+        el = document.getElementById('searchTags'); if (el) el.style.display = 'none';
         lookupModeRow.style.display = 'none';
         
         if (pregameStep === 0) {
             // Step 1: Customer or Application
-            console.log('Setting modalLabel to Customer or Application');
             modalLabel.textContent = 'Customer or Application';
             modalInput.placeholder = 'e.g., Acme Brewing, Glycol Dehydration, Hydraulic Plant';
             modalHint.innerHTML = '<strong>Step 1 of 4:</strong> Enter customer name OR application type<br><small>Examples: "Acme Brewing Co." or "Glycol Dehydration Plant" or "Hydraulic Lube Oil"</small>';
             modalInput.style.display = 'block';
             modalInput.value = pregameData.customer || '';
             setTimeout(function () { modalInput.focus(); }, 100);
-            console.log('modalLabel now:', modalLabel.textContent);
             
         } else if (pregameStep === 1) {
             // Step 2: Industry dropdown
@@ -1897,7 +1895,6 @@
         modalOverlay.classList.add('active');
 
         if (type === 'pregame') {
-            console.log('showModal: pregame type detected');
             resetPregameWizard();
             applyPregameWizardStep();
             return;
