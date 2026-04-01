@@ -1854,10 +1854,10 @@
         lookupModeRow.style.display = 'none';
         
         if (pregameStep === 0) {
-            // Step 1: Customer Name
-            modalLabel.textContent = 'Who is the customer?';
-            modalInput.placeholder = 'Company name (e.g., Acme Brewing Co.)';
-            modalHint.innerHTML = '<strong>Step 1 of 4:</strong> Enter the customer company name';
+            // Step 1: Customer or Application
+            modalLabel.textContent = 'Customer or Application';
+            modalInput.placeholder = 'e.g., Acme Brewing, Glycol Dehydration, Hydraulic Plant';
+            modalHint.innerHTML = '<strong>Step 1 of 4:</strong> Enter customer name OR application type<br><small>Examples: "Acme Brewing Co." or "Glycol Dehydration Plant" or "Hydraulic Lube Oil"</small>';
             modalInput.style.display = 'block';
             modalInput.value = pregameData.customer || '';
             setTimeout(function () { modalInput.focus(); }, 100);
