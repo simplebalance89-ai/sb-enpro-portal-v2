@@ -1471,7 +1471,7 @@
         overlay.classList.add('active');
 
         // Fetch part numbers from API
-        fetch(API_BASE + '/api/suggest?q=a&in_stock=all')
+        fetch(API_BASE + '/api/suggest?q=aa&in_stock=all')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var suggestions = data.suggestions || [];
