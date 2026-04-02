@@ -1485,9 +1485,12 @@
                     optionsHtml += '<option value="' + esc(prod.part) + '">★ ' + esc(display) + '</option>';
                 });
                 
-                // Add API suggestions
+                // Add API suggestions - handle object format {Part_Number, Description}
                 suggestions.slice(0, 50).forEach(function(s) {
-                    optionsHtml += '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+                    var pn = s.Part_Number || s;
+                    var desc = s.Description || '';
+                    var display = pn + (desc ? ' — ' + desc.substring(0, 40) : '');
+                    optionsHtml += '<option value="' + esc(pn) + '">' + esc(display) + '</option>';
                 });
 
                 // Part A dropdown — auto-select if we have a pinned/last product
