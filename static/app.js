@@ -1471,7 +1471,7 @@
         overlay.classList.add('active');
 
         // Fetch part numbers from API
-        fetch(API_BASE + '/api/suggest?q=a&mode=starts_with&in_stock=all')
+        fetch(API_BASE + '/api/suggest?q=a&in_stock=all')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var suggestions = data.suggestions || [];
@@ -1879,50 +1879,24 @@
     }
 
     function applyPregameWizardStep() {
-        modalTitle.textContent = 'Customer Pre Game — Meeting Prep';
-        
-        // Hide all special inputs first (safely - check if element exists)
+        // Single form like original - Industry required, others optional
+        modalTitle.textContent = 'Meeting Pregame';
+        modalLabel.textContent = 'Industry';
         modalInput.style.display = 'none';
-        var el;
-        el = document.getElementById('industrySelect'); if (el) el.style.display = 'none';
-        el = document.getElementById('specSelects'); if (el) el.style.display = 'none';
-        el = document.getElementById('chemicalSelect'); if (el) el.style.display = 'none';
-        el = document.getElementById('manufacturerSelect'); if (el) el.style.display = 'none';
-        el = document.getElementById('productTypeSelect'); if (el) el.style.display = 'none';
-        el = document.getElementById('searchTags'); if (el) el.style.display = 'none';
-        lookupModeRow.style.display = 'none';
+        modalHint.innerHTML = '';
         
-        if (pregameStep === 0) {
-            // Step 1: Customer Name (required)
-            modalLabel.textContent = 'Customer Name';
-            modalInput.placeholder = 'e.g., Acme Brewing Co., Shell Oil, etc.';
-            modalHint.innerHTML = '<strong>Step 1 of 3:</strong> Enter the customer company name<br><small>Required: Who are you meeting with?</small>';
-            modalInput.style.display = 'block';
-            modalInput.value = pregameData.customer || '';
-            setTimeout(function () { modalInput.focus(); }, 100);
-            
-        } else if (pregameStep === 1) {
-            // Step 2: Application/Industry (optional)
-            modalLabel.textContent = 'Application or Industry';
-            modalHint.innerHTML = '<strong>Step 2 of 3:</strong> What type of application or industry?<br><small>Optional: e.g., Hydraulic, Brewery, Water Treatment</small>';
-            modalInput.style.display = 'block';
-            modalInput.placeholder = 'e.g., Hydraulic, Brewery, Chemical Processing (optional)';
-            modalInput.value = pregameData.application || '';
-            // Show industry dropdown as helper
-            var appSelect = document.getElementById('industrySelect');
-            if (appSelect) {
-                appSelect.style.display = 'block';
-                if (appSelect.options[0]) appSelect.options[0].text = '-- Select Industry (optional) --';
-            }
-            
-        } else if (pregameStep === 2) {
-            // Step 3: Any additional info (optional free text)
-            modalLabel.textContent = 'Additional Information';
-            modalHint.innerHTML = '<strong>Step 3 of 3:</strong> Anything else you know?<br><small>Optional: Part numbers, specs, requirements, or leave blank</small>';
-            modalInput.style.display = 'block';
-            modalInput.placeholder = 'Any part numbers, specs, or notes (optional)';
-            modalInput.value = pregameData.knownInfo || '';
+        // Show the industry dropdown
+        var indSelect = document.getElementById('industrySelect');
+        if (indSelect) {
+            indSelect.style.display = 'block';
+            if (indSelect.options[0]) indSelect.options[0].text = '-- Select industry --';
         }
+        
+        // Simple single-field approach - just ask for industry and customer
+        modalLabel.textContent = 'Customer or Application';
+        modalInput.placeholder = 'e.g., Acme Brewing, Glycol Dehydration Plant';
+        modalInput.style.display = 'block';
+        modalHint.innerHTML = '<small>Enter customer name, application type, or both</small>';
     }
 
     window.showModal = function (type) {
