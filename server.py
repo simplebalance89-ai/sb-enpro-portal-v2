@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
             # Initialize Voice Echo (predictive pre-fetch system)
             try:
                 state.voice_gate = VoiceGate.from_dataframe(state.df)
-                state.voice_echo = VoiceEcho(state.voice_gate, delay_seconds=12, defer_seconds=20)  # 12s initial + 20s deep lookup = 32s total
+                state.voice_echo = VoiceEcho(state.voice_gate, delay_seconds=8, defer_seconds=15)  # 8s initial + 15s deep lookup = 23s total
                 logger.info("Voice Echo initialized with predictive pre-fetch")
             except Exception as ve:
                 logger.error(f"Voice Echo init failed: {ve}")
