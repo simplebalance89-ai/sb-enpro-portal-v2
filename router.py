@@ -189,20 +189,20 @@ A = Compatible/Recommended, B = Compatible with limitations, C = Limited/Avoid f
 
 The crosswalk file contains FILTER MEDIA compatibility only. For seal/elastomer ratings, use ONLY these hardcoded values.
 
-### Sulfuric Acid
-1. Viton: A
-2. EPDM: B
-3. Buna-N: C
+### Sulfuric Acid (concentrated 98%)
+1. Viton: C (marginal — verify concentration)
+2. EPDM: C (marginal)
+3. Buna-N: D (AVOID)
 4. Nylon: D (WARN — Do NOT use)
 5. PTFE: A
 6. PVDF: A
-7. 316SS: A (RECOMMENDED)
-Note: Carbon steel is NOT recommended.
+7. 316SS: D (AVOID at high concentration — use Hastelloy C)
+Note: Carbon steel is NOT recommended. For dilute H2SO4 (<30%), 316SS may be acceptable — always verify concentration.
 
 ### MEK (Methyl Ethyl Ketone)
-1. Viton: D (AVOID)
-2. EPDM: B
-3. Buna-N: D
+1. Viton: B
+2. EPDM: D (AVOID — swells in ketones)
+3. Buna-N: D (AVOID)
 4. PTFE: A
 5. 316SS: A
 
