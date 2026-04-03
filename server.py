@@ -15,7 +15,7 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import settings
 from data_loader import load_static, load_inventory, load_chemicals, merge_data
@@ -138,11 +138,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins for embed/widget use
+# CORS — allow all origins for embed/widget use (credentials=False per spec when origin=*)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -153,29 +153,29 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=2000)
     session_id: str = "default"
     mode: str = "standard"  # standard, demo, guided
 
 
 class LookupRequest(BaseModel):
-    part_number: str
+    part_number: str = Field(max_length=200)
     session_id: str = "default"
 
 
 class SearchRequest(BaseModel):
-    query: str
+    query: str = Field(max_length=500)
     field: Optional[str] = None
     session_id: str = "default"
 
 
 class ChemicalRequest(BaseModel):
-    chemical: str
+    chemical: str = Field(max_length=200)
     session_id: str = "default"
 
 
 class SuggestRequest(BaseModel):
-    query: str
+    query: str = Field(max_length=200)
     session_id: str = "default"
 
 
@@ -574,16 +574,18 @@ async def email_report(req: EmailReportRequest):
             f"<h2>{req.subject}</h2>",
         ]
         if req.body:
-            html_parts.append(f"<p>{req.body}</p>")
+            from html import escape as html_escape
+            html_parts.append(f"<p>{html_escape(str(req.body))}</p>")
         if req.reports:
+            from html import escape as html_escape
             html_parts.append("<table border='1' cellpadding='8' cellspacing='0' style='border-collapse:collapse;'>")
             html_parts.append("<tr><th>Part Number</th><th>Reason</th><th>Session</th><th>Time</th></tr>")
             for r in req.reports:
                 html_parts.append(
-                    f"<tr><td>{r.get('part_number','')}</td>"
-                    f"<td>{r.get('reason','')}</td>"
-                    f"<td>{r.get('session_id','')[:8]}</td>"
-                    f"<td>{r.get('timestamp','')}</td></tr>"
+                    f"<tr><td>{html_escape(str(r.get('part_number','')))}</td>"
+                    f"<td>{html_escape(str(r.get('reason','')))}</td>"
+                    f"<td>{html_escape(str(r.get('session_id',''))[:8])}</td>"
+                    f"<td>{html_escape(str(r.get('timestamp','')))}</td></tr>"
                 )
             html_parts.append("</table>")
         html_parts.append("<br><p><em>— EnPro Filtration Mastermind</em></p></body></html>")
@@ -687,6 +689,7 @@ async def _transcribe(audio_bytes: bytes, filename: str, content_type: str) -> s
             files={
                 "file": (filename, audio_bytes, content_type),
                 "response_format": (None, "json"),
+                "language": (None, "en"),
             },
         )
         resp.raise_for_status()
@@ -737,6 +740,8 @@ async def voice_search(file: UploadFile = File(...)):
     audio_bytes = await file.read()
     if not audio_bytes:
         return JSONResponse(status_code=400, content={"error": "Empty audio file."})
+    if len(audio_bytes) > 25 * 1024 * 1024:  # 25MB limit
+        return JSONResponse(status_code=413, content={"error": "Audio file too large (max 25MB)."})
 
     try:
         transcript = await _transcribe(
