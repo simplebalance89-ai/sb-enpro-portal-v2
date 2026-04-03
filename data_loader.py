@@ -45,6 +45,15 @@ def load_static() -> pd.DataFrame:
     logger.info("Loading static crosswalk from Azure Blob...")
     try:
         df = _read_csv("static_crosswalk.csv")
+        # Normalize column names: CSV has Micron_Final/Media_Final but code expects Micron/Media
+        drop_source = [c for c in df.columns if c.endswith("_Source")]
+        if drop_source:
+            df = df.drop(columns=drop_source, errors="ignore")
+            logger.info(f"Dropped {len(drop_source)} _Source columns")
+        rename = {c: c.replace("_Final", "") for c in df.columns if c.endswith("_Final")}
+        if rename:
+            df = df.rename(columns=rename)
+            logger.info(f"Renamed {len(rename)} _Final columns: {list(rename.values())}")
         logger.info(f"Static crosswalk loaded: {len(df)} rows, {len(df.columns)} columns")
         return df
     except Exception as e:
@@ -211,7 +220,11 @@ def _apply_display_mappings(df: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"Product type display mapped: {len(pt_map)} categories")
 
     # Flag filtration products
-    if "Has_V21_Specs" in df.columns:
+    if "Item_Category" in df.columns:
+        df["Is_Filtration"] = df["Item_Category"].astype(str).str.upper() == "OK-FILTRATION"
+        filt_count = df["Is_Filtration"].sum()
+        logger.info(f"Filtration products flagged (Item_Category): {filt_count}/{len(df)}")
+    elif "Has_V21_Specs" in df.columns:
         df["Is_Filtration"] = df["Has_V21_Specs"].astype(str).str.upper().isin(["Y", "YES", "TRUE", "1"])
         filt_count = df["Is_Filtration"].sum()
         logger.info(f"Filtration products flagged: {filt_count}/{len(df)}")
