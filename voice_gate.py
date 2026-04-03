@@ -406,7 +406,7 @@ class VoiceGate:
         }
         
         # Append to miss log
-        log_path = Path("C:/ROUNDTABLE_BRAIN/voice_gate_misses.jsonl")
+        log_path = Path("data/voice_gate_misses.jsonl")
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(log_path, 'a') as f:
             f.write(json.dumps(miss) + '\n')

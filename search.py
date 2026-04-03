@@ -58,7 +58,7 @@ STOCK_LOCATIONS = {
     "Qty_Loc_30": "Kansas City",
 }
 
-MAX_RESULTS = 10
+MAX_RESULTS = 5
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +132,7 @@ def search_products(
     return {
         "results": results,
         "total_found": total_found,
+        "has_more": total_found > max_results,
         "query": query,
         "search_type": search_type,
     }

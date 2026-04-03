@@ -130,6 +130,8 @@ class VoiceEcho:
         # 3. Grade accuracy
         grade = self._grade_accuracy(user_query, result, response_time)
         self.accuracy_history.append(grade)
+        if len(self.accuracy_history) > 1000:
+            self.accuracy_history = self.accuracy_history[-500:]
         
         # 4. Format response
         response = self._format_response(result, grade)
@@ -273,7 +275,10 @@ class VoiceEcho:
         
         # Fuzzy match = 70-90%
         if result.match_confidence:
-            pct = 70 + (result.match_confidence * 20)
+            try:
+                pct = 70 + (float(result.match_confidence) * 20)
+            except (TypeError, ValueError):
+                pct = 75.0  # Default for non-numeric confidence
             return AccuracyGrade(
                 query=query,
                 accuracy_pct=pct,
@@ -360,7 +365,12 @@ class VoiceEcho:
                 )
                 
                 self.echo_cache[task['predicted_query'].lower()] = echo
-                
+                # Cap cache at 500 entries
+                if len(self.echo_cache) > 500:
+                    oldest_keys = list(self.echo_cache.keys())[:100]
+                    for k in oldest_keys:
+                        del self.echo_cache[k]
+
             except queue.Empty:
                 continue
             except Exception as e:
@@ -414,14 +424,14 @@ class VoiceEcho:
     
     def _load_patterns(self):
         """Load learned patterns from disk."""
-        path = Path("C:/ROUNDTABLE_BRAIN/voice_echo_patterns.json")
+        path = Path("data/voice_echo_patterns.json")
         if path.exists():
             with open(path) as f:
                 self.patterns = json.load(f)
     
     def _save_patterns(self):
         """Save learned patterns."""
-        path = Path("C:/ROUNDTABLE_BRAIN/voice_echo_patterns.json")
+        path = Path("data/voice_echo_patterns.json")
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w') as f:
             json.dump(self.patterns, f, indent=2)

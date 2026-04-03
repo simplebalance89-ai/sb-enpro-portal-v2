@@ -533,7 +533,7 @@ def voice_query(df: pd.DataFrame, resolved: dict) -> dict:
         if not stocked.empty:
             results_df = stocked
 
-    results = [format_product(row) for _, row in results_df.head(10).iterrows()]
+    results = [format_product(row) for _, row in results_df.head(5).iterrows()]
 
     # Calculate overall confidence
     field_confidences = [v.get("confidence", 0) for v in confidence.values() if isinstance(v, dict)]
@@ -554,6 +554,7 @@ def voice_query(df: pd.DataFrame, resolved: dict) -> dict:
     return {
         "results": results,
         "total_found": total_found,
+        "has_more": total_found > 5,
         "query": " + ".join(filters_applied) if filters_applied else "voice search",
         "search_type": "voice_search",
         "voice_confidence": confidence,

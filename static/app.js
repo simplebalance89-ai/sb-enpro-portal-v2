@@ -635,10 +635,37 @@
             if (data.total_found !== undefined) {
                 var headerMsg = 'Found **' + data.total_found + '** products';
                 if (data.total_found > data.results.length) headerMsg += ' (showing top ' + data.results.length + ')';
-                headerMsg += ' [V25 FILTERS]:';
                 appendMessage('bot', formatMarkdown(headerMsg));
             }
             await renderProductsBatched(data.results);
+            if (data.has_more && data.query) {
+                var showMoreBtn = document.createElement('button');
+                showMoreBtn.className = 'show-more-btn';
+                showMoreBtn.style.cssText = 'display:block;margin:8px auto;padding:8px 24px;background:#1a73e8;color:#fff;border:none;border-radius:20px;cursor:pointer;font-size:14px;';
+                showMoreBtn.textContent = 'Show 5 more results';
+                showMoreBtn.onclick = async function() {
+                    showMoreBtn.disabled = true;
+                    showMoreBtn.textContent = 'Loading...';
+                    try {
+                        var moreResp = await fetch(API_BASE + '/api/search', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({query: data.query, max_results: 10, in_stock_only: false})
+                        });
+                        var moreData = await moreResp.json();
+                        if (moreData.results && moreData.results.length > 0) {
+                            var extra = moreData.results.slice(data.results.length);
+                            if (extra.length > 0) {
+                                await renderProductsBatched(extra);
+                            } else {
+                                appendMessage('bot', 'No additional results.');
+                            }
+                        }
+                    } catch(e) { appendMessage('bot', 'Failed to load more results.'); }
+                    showMoreBtn.remove();
+                    scrollToBottom();
+                };
+                chatMessages.appendChild(showMoreBtn);
+            }
         } else if (data.chemical) {
             appendCard(renderChemicalCard(data.chemical));
         } else if (data.table) {
