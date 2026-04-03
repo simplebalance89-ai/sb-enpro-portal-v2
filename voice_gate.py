@@ -1,5 +1,5 @@
 """
-EnPro Voice Gate — Data-Aware Lookup & Response Layer
+Enpro Voice Gate — Data-Aware Lookup & Response Layer
 Handles missing data honestly, tries all 4 lookup paths.
 """
 

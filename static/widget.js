@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   EnPro Filtration Mastermind — Embeddable Chat Widget
+   Enpro Filtration Mastermind — Embeddable Chat Widget
 
    Usage:
    <script src="https://enpro-fm-portal.azurewebsites.net/widget.js"></script>
@@ -138,7 +138,7 @@
     // ── Bubble ──
     var bubble = document.createElement('div');
     bubble.className = 'enpro-widget-bubble';
-    bubble.setAttribute('aria-label', 'Open EnPro chat');
+    bubble.setAttribute('aria-label', 'Open Enpro chat');
     bubble.innerHTML = [
         '<svg class="enpro-chat-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>',
         '<svg class="enpro-close-icon" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>'
@@ -154,7 +154,7 @@
     panel.className = 'enpro-widget-panel';
 
     var iframe = document.createElement('iframe');
-    iframe.title = 'EnPro Filtration Mastermind Chat';
+    iframe.title = 'Enpro Filtration Mastermind Chat';
     var iframeLoaded = false;
 
     panel.appendChild(iframe);

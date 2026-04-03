@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Governance Engine
+Enpro Filtration Mastermind Portal — Governance Engine
 Pre-checks (before GPT) and post-checks (after GPT) to enforce safety,
 scope, and response quality.
 """
@@ -11,7 +11,7 @@ from typing import Optional
 logger = logging.getLogger("enpro.governance")
 
 # ---------------------------------------------------------------------------
-# Escalation triggers — any of these = "Contact EnPro Engineering"
+# Escalation triggers — any of these = "Contact Enpro Engineering"
 # ---------------------------------------------------------------------------
 ESCALATION_TRIGGERS = {
     "temperature": 400,   # Max temp F
@@ -32,7 +32,7 @@ ESCALATION_KEYWORDS = [
 
 ESCALATION_RESPONSE = (
     "This application requires engineering review. "
-    "Contact EnPro: service@enproinc.com | 1 (800) 323-2416"
+    "Contact Enpro: service@enproinc.com | 1 (800) 323-2416"
 )
 
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ def _check_volume_pricing(message: str, context: Optional[dict] = None) -> Optio
                 "intercepted": True,
                 "check": "volume_pricing",
                 "response": (
-                    "Contact EnPro for volume pricing — "
+                    "Contact Enpro for volume pricing — "
                     "service@enproinc.com or 1 (800) 323-2416."
                 ),
             }
@@ -164,7 +164,7 @@ def _check_shipping(message: str, context: Optional[dict] = None) -> Optional[di
                 "intercepted": True,
                 "check": "shipping",
                 "response": (
-                    "Contact EnPro for shipping and delivery — "
+                    "Contact Enpro for shipping and delivery — "
                     "service@enproinc.com or 1 (800) 323-2416."
                 ),
             }
@@ -241,9 +241,9 @@ def run_post_check(response: str) -> dict:
     """
     issues = []
 
-    # Check for $0.00 prices (should say "Contact EnPro")
+    # Check for $0.00 prices (should say "Contact Enpro")
     if re.search(r"\$0\.?0{0,2}\b", response):
-        issues.append("Response contains $0 price — should say 'Contact EnPro for pricing'")
+        issues.append("Response contains $0 price — should say 'Contact Enpro for pricing'")
 
     # Check for hidden field leaks
     hidden_patterns = [
@@ -275,7 +275,7 @@ def sanitize_response(response: str) -> str:
     # Replace $0.00 with contact message
     response = re.sub(
         r"\$0\.?0{0,2}\b",
-        "Contact EnPro for pricing",
+        "Contact Enpro for pricing",
         response,
     )
 

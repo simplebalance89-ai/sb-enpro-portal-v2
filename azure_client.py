@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Azure OpenAI Client
+Enpro Filtration Mastermind Portal — Azure OpenAI Client
 Async wrapper for gpt-4.1-mini (router) and gpt-4.1 (reasoning) deployments.
 """
 

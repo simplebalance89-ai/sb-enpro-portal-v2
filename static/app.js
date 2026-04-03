@@ -1,5 +1,5 @@
 ﻿/* ══════════════════════════════════════════════════════════════
-   EnPro Filtration Mastermind — Frontend App
+   Enpro Filtration Mastermind — Frontend App
    ══════════════════════════════════════════════════════════════ */
 
 (function () {
@@ -759,7 +759,7 @@
             var mfr = p.Final_Manufacturer || p.Manufacturer_Display || p.Manufacturer || p.manufacturer || '';
             var price = p.Price || p.price || '';
             var stock = p.Total_Stock || p.total_stock || 0;
-            var priceDisplay = (price && price !== 'Contact EnPro for pricing') ? price : '';
+            var priceDisplay = (price && price !== 'Contact Enpro for pricing') ? price : '';
             var stockDisplay = stock > 0 ? '<span style="color:var(--stock-green);font-weight:700;">' + stock + '</span>' : '<span style="color:var(--stock-red);">0</span>';
             var hiddenStyle = idx >= SHOW_LIMIT ? ' style="display:none;" data-extra="' + cardId + '"' : '';
 
@@ -926,7 +926,7 @@
         } else {
             html += '<div class="price-section">';
             html += '<div class="stock-title">Pricing</div>';
-            html += '<div class="price-row"><span>Base</span><span class="price-val">Contact EnPro for pricing</span></div>';
+            html += '<div class="price-row"><span>Base</span><span class="price-val">Contact Enpro for pricing</span></div>';
             html += '</div>';
         }
 
@@ -979,7 +979,7 @@
             /(?:Recommended\s*Materials?)[:\s]*(.*)/i,
             /(?:Materials?\s*to\s*AVOID)[:\s]*(.*)/i,
             /(?:Key\s*Considerations?)[:\s]*(.*)/i,
-            /(?:EnPro\s*Recommendation)[:\s]*(.*)/i
+            /(?:Enpro\s*Recommendation)[:\s]*(.*)/i
         ];
         var extraLines = [];
         extraPatterns.forEach(function (pat) {
@@ -1373,7 +1373,7 @@
                     if (p.Micron) specParts.push(p.Micron + ' micron');
                     if (p.Max_Temp_F) specParts.push(p.Max_Temp_F + '°F');
                     if (p.Max_PSI) specParts.push(p.Max_PSI + ' PSI');
-                    var priceStr = p.Price || 'Contact EnPro';
+                    var priceStr = p.Price || 'Contact Enpro';
 
                     html += '<div class="compare-suggestion" onclick="runCompareFromPanel(\'' + esc(sourcePartNumber) + '\', \'' + esc(p.Part_Number || '') + '\')">';
                     html += '<div class="compare-suggestion-info">';
@@ -2322,7 +2322,7 @@
         var card = btn.closest('.product-card');
         if (!card) return;
         var printWin = window.open('', '_blank', 'width=500,height=600');
-        printWin.document.write('<html><head><title>EnPro Product</title>');
+        printWin.document.write('<html><head><title>Enpro Product</title>');
         printWin.document.write('<style>body{font-family:system-ui,sans-serif;padding:20px;color:#333;}');
         printWin.document.write('.product-card-header{background:#003366;color:white;padding:12px 16px;font-weight:700;font-size:16px;}');
         printWin.document.write('.product-card-body{padding:14px 16px;}.product-field{display:flex;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;}');
@@ -2333,7 +2333,7 @@
         printWin.document.write('.card-actions{display:none;}.stock-qty{font-weight:700;}');
         printWin.document.write('</style></head><body>');
         printWin.document.write(card.outerHTML);
-        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">EnPro Inc. | service@enproinc.com | 1 (800) 323-2416</div>');
+        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Enpro Inc. | service@enproinc.com | 1 (800) 323-2416</div>');
         printWin.document.write('</body></html>');
         printWin.document.close();
         printWin.print();
@@ -2364,7 +2364,7 @@
             text = text.slice(0, -3) + '\n';
         }
         text += '─'.repeat(40) + '\n';
-        text += 'EnPro Inc. | service@enproinc.com | 1 (800) 323-2416\n';
+        text += 'Enpro Inc. | service@enproinc.com | 1 (800) 323-2416\n';
 
         copyToClipboard(text, btn);
     };
@@ -2665,7 +2665,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                subject: 'EnPro FM Portal — Flagged Reports (' + reports.length + ')',
+                subject: 'Enpro FM Portal — Flagged Reports (' + reports.length + ')',
                 body: 'Reports flagged during session ' + (sessionId || 'unknown').substring(0, 8),
                 reports: reports
             })
@@ -2927,7 +2927,7 @@
         .then(function (data) {
             if (data.status === 'saved') {
                 closeQuoteModal();
-                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>EnPro will follow up within 1 business day.<br>Contact: service@enproinc.com | 1 (800) 323-2416');
+                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Contact: service@enproinc.com | 1 (800) 323-2416');
                 // Reset
                 quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
                 quoteItems = [];

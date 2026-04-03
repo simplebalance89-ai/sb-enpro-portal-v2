@@ -1,5 +1,5 @@
 """
-EnPro Voice Echo — Predictive Pre-Fetch System
+Enpro Voice Echo — Predictive Pre-Fetch System
 Grades accuracy, echoes predictions in background, learns patterns.
 """
 

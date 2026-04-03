@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Quote State
+Enpro Filtration Mastermind Portal — Quote State
 Tracks quote-ready fields in the background as users talk naturally.
 """
 

@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind — Voice Search Engine
+Enpro Filtration Mastermind — Voice Search Engine
 Catalog-aware voice-to-product pipeline.
 
 Flow: transcript → pre-process → parameter extract (GPT-4.1-mini) → fuzzy resolve → Pandas search → results

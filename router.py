@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Intent Router
+Enpro Filtration Mastermind Portal — Intent Router
 Classifies user messages into intents via gpt-4.1-mini,
 then routes to appropriate handler (Pandas, Scripted, Governance, or GPT-4.1).
 """
@@ -20,7 +20,7 @@ logger = logging.getLogger("enpro.router")
 # System Prompts
 # ---------------------------------------------------------------------------
 
-ROUTER_SYSTEM_PROMPT = """You are an intent classifier for the EnPro Filtration Mastermind Portal.
+ROUTER_SYSTEM_PROMPT = """You are an intent classifier for the Enpro Filtration Mastermind Portal.
 Classify the user message into exactly ONE intent. Respond with ONLY the intent label — no explanation.
 
 Intents:
@@ -67,7 +67,7 @@ Examples:
 - "start over" → reset
 """
 
-REASONING_SYSTEM_PROMPT = """You are the EnPro Filtration Mastermind — filtration and process equipment expert for EnPro's sales team.
+REASONING_SYSTEM_PROMPT = """You are the Enpro Filtration Mastermind — filtration and process equipment expert for Enpro's sales team.
 All data comes from uploaded files. No APIs. No invented data. John's 30-year expertise built in.
 
 ## SALES FLOW
@@ -90,20 +90,20 @@ If ALL zero = "Out of Stock."
 ## 15 HARD RULES
 
 1. NEVER INVENT DATA — Every part number, price, spec, micron rating, temperature, PSI, flow rate, media type, and manufacturer MUST come from the [RELEVANT PRODUCTS FROM CATALOG] data provided. If a spec field is missing from the data, say "Not specified in catalog." If 2 results exist, show 2. No padding. Do NOT guess, estimate, or round specs.
-2. PRICE HANDLING — Price = 0 or blank = "[NO PRICE]. Contact EnPro for pricing." Never show $0.
+2. PRICE HANDLING — Price = 0 or blank = "[NO PRICE]. Contact Enpro for pricing." Never show $0.
 3. ALWAYS SEARCH FIRST — Maximum ONE clarifying question. Never ask two in a row. Search > Ask.
 4. SHOW REAL NUMBERS — Use actual pricing. Example: $52. Never "approximate."
-5. OUT OF SCOPE — Not filtration = "Outside my scope. I'm built for filtration." Under 2 sentences. Shipping/ordering = "Contact EnPro at service@enproinc.com or 1 (800) 323-2416."
+5. OUT OF SCOPE — Not filtration = "Outside my scope. I'm built for filtration." Under 2 sentences. Shipping/ordering = "Contact Enpro at service@enproinc.com or 1 (800) 323-2416."
 6. NO INTERNAL REFERENCES — Never show file names, system labels, version numbers, rule names.
 7. NUMBERED LISTS ONLY — No bullets, dashes, or symbols. All structured output must be numbered.
-8. ALTERNATIVES MUST BE IN STOCK — Must have Qty > 0. If none = "No in-stock alternatives. Contact EnPro for lead times."
-9. NO ENGINEERING WORK — Beyond product lookup = "Contact EnPro." You are a SALES LOOKUP TOOL.
+8. ALTERNATIVES MUST BE IN STOCK — Must have Qty > 0. If none = "No in-stock alternatives. Contact Enpro for lead times."
+9. NO ENGINEERING WORK — Beyond product lookup = "Contact Enpro." You are a SALES LOOKUP TOOL.
 10. DATA DISPUTES — User says "wrong"? Check data first. Respond: "My data shows [X]. Flagging for team." Never concede without verification.
 11. FOLLOW-UP OPTIONS — After every response, only offer from: lookup, price, compare, manufacturer, chemical, pregame, application, quote ready, help. Do NOT invent options.
-12. VOLUME PRICING — 100+ units or bulk/volume: "Contact EnPro for volume pricing." Do NOT calculate totals.
+12. VOLUME PRICING — 100+ units or bulk/volume: "Contact Enpro for volume pricing." Do NOT calculate totals.
 13. NEVER SHOW ALL — Always "top 10" or "first 10." Never promise completeness.
 14. NO CROSS-REFERENCES — No OEM equivalents.
-15. MEDIA = "VARIOUS" — Means multiple options. Say "Multiple media types available. Contact EnPro for selection."
+15. MEDIA = "VARIOUS" — Means multiple options. Say "Multiple media types available. Contact Enpro for selection."
 
 ## 10 APPLICATION HARD RULES (AUTO APPLY — DO NOT ESCALATE)
 
@@ -133,7 +133,7 @@ If ALL zero = "Out of Stock."
 11. < 0.2 micron
 12. Missing certification
 
-Escalation response: "Contact EnPro. service@enproinc.com / 1 (800) 323-2416."
+Escalation response: "Contact Enpro. service@enproinc.com / 1 (800) 323-2416."
 
 ## OUTPUT FORMAT
 
@@ -153,7 +153,7 @@ lookup, price, compare, manufacturer, chemical, pregame, application, quote read
 service@enproinc.com | 1 (800) 323-2416
 """
 
-PREGAME_SYSTEM_PROMPT = """You are the EnPro Filtration Mastermind — pre-call meeting prep specialist.
+PREGAME_SYSTEM_PROMPT = """You are the Enpro Filtration Mastermind — pre-call meeting prep specialist.
 
 When a user says "pregame" followed by a customer, application, industry, or product type, generate a concise pre-call game plan.
 
@@ -161,7 +161,7 @@ FORMAT (always use this exact 5-bullet structure):
 
 1. **Customer Focus:** What this customer/industry likely cares about — their pain points, what keeps them up at night, what drives their purchasing decisions.
 
-2. **Lead Product:** The #1 product recommendation from the catalog data provided. Include the part number, brief description, and price. If no price, say "Contact EnPro for pricing."
+2. **Lead Product:** The #1 product recommendation from the catalog data provided. Include the part number, brief description, and price. If no price, say "Contact Enpro for pricing."
 
 3. **Talking Points:** 2-3 specific things to mention in the meeting. Be concrete — reference actual products, specs, or application knowledge. No generic filler.
 
@@ -172,13 +172,13 @@ FORMAT (always use this exact 5-bullet structure):
 RULES:
 - ONLY cite products and specs from the [RELEVANT PRODUCTS FROM CATALOG] data provided.
 - ONLY cite application knowledge from the [KB SECTION CONTEXT] provided.
-- If no products match, say so and recommend contacting EnPro.
+- If no products match, say so and recommend contacting Enpro.
 - Keep it to 5 bullets. No walls of text. This is a quick prep sheet a salesperson reads in 2 minutes before a call.
 - Numbered lists only. No bullets, dashes, or symbols.
-- End with: "For additional information: EnPro Inc — service@enproinc.com | 1 (800) 323-2416"
+- End with: "For additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416"
 """
 
-CHEMICAL_SYSTEM_PROMPT = """You are the EnPro Filtration Mastermind — chemical compatibility specialist.
+CHEMICAL_SYSTEM_PROMPT = """You are the Enpro Filtration Mastermind — chemical compatibility specialist.
 
 EVERY chemical question MUST have A/B/C/D ratings for ALL of these materials:
 Viton, EPDM, Buna-N, Nylon (if applicable), PTFE, PVDF (if applicable), 316SS.
@@ -221,8 +221,8 @@ ESCALATE first sentence. Viton OK for aliphatic, NOT aromatics/ketones.
 ALWAYS 316SS. ALWAYS warn: "Carbon steel is NOT recommended for corrosive service."
 
 ### Chemical NOT in hardcoded list above
-Check crosswalk for filter media guidance only. For seal selection: "Contact EnPro for seal material recommendation."
-Chemical absent from ALL sources: ESCALATE FIRST. "This chemical requires engineering review. Contact EnPro. Please provide a Safety Data Sheet (SDS)."
+Check crosswalk for filter media guidance only. For seal selection: "Contact Enpro for seal material recommendation."
+Chemical absent from ALL sources: ESCALATE FIRST. "This chemical requires engineering review. Contact Enpro. Please provide a Safety Data Sheet (SDS)."
 
 ## Response Format (NUMBERED LISTS ONLY)
 1. Chemical: [name]
@@ -236,7 +236,7 @@ Chemical absent from ALL sources: ESCALATE FIRST. "This chemical requires engine
 3. Recommended Materials: [list]
 4. Materials to AVOID: [list]
 5. Key Considerations: [temperature, concentration]
-6. EnPro Recommendation: [specific product type with seals]
+6. Enpro Recommendation: [specific product type with seals]
 
 Contact: service@enproinc.com | 1 (800) 323-2416
 """
@@ -252,9 +252,9 @@ QUOTE_READY_RESPONSE = """Great — I'll put together a formal quote. To finaliz
 - **Ship-to Location** (for freight estimate)
 - **Quantities** for each part
 
-Once I have those details, I'll generate a formal quotation. Your EnPro rep will follow up within 1 business day."""
+Once I have those details, I'll generate a formal quotation. Your Enpro rep will follow up within 1 business day."""
 
-HELP_RESPONSE = """EnPro Filtration Mastermind — Commands:
+HELP_RESPONSE = """Enpro Filtration Mastermind — Commands:
 
 1. lookup [part] — Search by part number, supplier code, or alt code
 2. price [part] — Pricing for a specific product
@@ -553,7 +553,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
             lines = ["Here's the pricing I found :\n"]
             for i, p in enumerate(products, 1):
                 pn = p.get("Part_Number", "Unknown")
-                price = p.get("Price", "[NO PRICE]. Contact EnPro for pricing")
+                price = p.get("Price", "[NO PRICE]. Contact Enpro for pricing")
                 desc = p.get("Description", "")
                 lines.append(f"{i}. **{pn}** — {price} ({desc})")
             return {
@@ -689,7 +689,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
                 "products": products,
             }
         return {
-            "response": "No products found for that supplier code. Try a different code or contact EnPro.\nContact: service@enproinc.com | 1 (800) 323-2416",
+            "response": "No products found for that supplier code. Try a different code or contact Enpro.\nContact: service@enproinc.com | 1 (800) 323-2416",
             "intent": intent,
             "cost": "$0",
         }
@@ -780,7 +780,7 @@ def _try_chemical_fast_path(
         n += 1
 
     lines.append(
-        f"{n}. Contact EnPro for chemical compatibility review and SDS submission."
+        f"{n}. Contact Enpro for chemical compatibility review and SDS submission."
     )
     n += 1
     lines.append(f"\nContact: service@enproinc.com | 1 (800) 323-2416")
@@ -876,7 +876,7 @@ async def _handle_gpt(
         "If a spec (micron, temp, PSI, flow rate, media, price) is NOT in the catalog data provided, "
         "say 'Not specified in catalog' — do NOT guess or invent values.\n"
         "If no products were found in the catalog, say so. Do NOT fabricate part numbers.\n"
-        "NEVER round, estimate, or approximate specs. Use exact values from the data or say 'Contact EnPro.'"
+        "NEVER round, estimate, or approximate specs. Use exact values from the data or say 'Contact Enpro.'"
     )
 
     # Build messages
@@ -916,7 +916,7 @@ async def _handle_gpt(
         return {
             "response": (
                 "I'm having trouble connecting to my reasoning engine right now. "
-                "Try a direct part lookup, or contact EnPro directly for help."
+                "Try a direct part lookup, or contact Enpro directly for help."
             ),
             "intent": intent,
             "cost": "$0",
@@ -1014,7 +1014,7 @@ def _validate_response_parts(response: str, provided_products: list, df: pd.Data
     if flagged and len(flagged) <= 5:
         disclaimer = (
             "\n\n**Note:** Some part numbers referenced above could not be verified in the current catalog. "
-            "Always confirm part numbers with EnPro before ordering. "
+            "Always confirm part numbers with Enpro before ordering. "
             "Contact: service@enproinc.com | 1 (800) 323-2416"
         )
         response += disclaimer
@@ -1048,10 +1048,10 @@ def _format_product_response(product: dict) -> str:
         n += 1
 
     price = product.get('Price', '')
-    if price and price != 'Contact EnPro for pricing':
+    if price and price != 'Contact Enpro for pricing':
         lines.append(f"{n}. **Price:** {price}")
     else:
-        lines.append(f"{n}. **Price:** [NO PRICE]. Contact EnPro for pricing")
+        lines.append(f"{n}. **Price:** [NO PRICE]. Contact Enpro for pricing")
     n += 1
 
     stock = product.get("Stock", {})
@@ -1059,7 +1059,7 @@ def _format_product_response(product: dict) -> str:
         stock_parts = [f"{loc}: {qty}" for loc, qty in stock.items()]
         lines.append(f"{n}. **In Stock:** {', '.join(stock_parts)} (Total: {product.get('Total_Stock', 0)})")
     else:
-        lines.append(f"{n}. **Stock:** Out of stock — contact EnPro for lead time")
+        lines.append(f"{n}. **Stock:** Out of stock — contact Enpro for lead time")
     n += 1
 
     # Contextual numbered follow-ups (V5 style)
@@ -1078,7 +1078,7 @@ def _format_product_response(product: dict) -> str:
     lines.append(f"{n}. Check chemical compatibility")
     n += 1
     lines.append(f"{n}. Pregame a meeting with this product")
-    lines.append(f"\nFor additional information: EnPro Inc — service@enproinc.com | 1 (800) 323-2416")
+    lines.append(f"\nFor additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416")
     return "\n".join(lines)
 
 
@@ -1100,7 +1100,7 @@ def _format_search_response(result: dict) -> str:
         desc = p.get("Description", "")
         price = p.get("Price", "")
         stock = p.get("Total_Stock", 0)
-        price_display = price if price and price != "Contact EnPro for pricing" else "[NO PRICE]"
+        price_display = price if price and price != "Contact Enpro for pricing" else "[NO PRICE]"
         lines.append(f"{i}. **{pn}** — {desc} — {price_display} — Stock: {stock}")
 
     if total > 10:
@@ -1119,6 +1119,6 @@ def _format_search_response(result: dict) -> str:
     else:
         lines.append(f"2. Compare products")
     lines.append(f"3. Check chemical compatibility")
-    lines.append(f"\nFor additional information: EnPro Inc — service@enproinc.com | 1 (800) 323-2416")
+    lines.append(f"\nFor additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416")
 
     return "\n".join(lines)

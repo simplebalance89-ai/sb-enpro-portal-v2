@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — FastAPI Server
+Enpro Filtration Mastermind Portal — FastAPI Server
 Main application with chat, lookup, search, chemical check, and widget endpoints.
 """
 
@@ -86,7 +86,7 @@ async def _refresh_inventory_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load data from Azure Blob on startup, start background refresh."""
-    logger.info("EnPro Filtration Mastermind Portal starting...")
+    logger.info("Enpro Filtration Mastermind Portal starting...")
 
     # Load all data
     try:
@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     refresh_task.cancel()
     await close_client()
-    logger.info("EnPro Filtration Mastermind Portal stopped.")
+    logger.info("Enpro Filtration Mastermind Portal stopped.")
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="EnPro Filtration Mastermind Portal",
+    title="Enpro Filtration Mastermind Portal",
     version="1.0.0",
     description="AI-powered filtration product search, recommendation, and quote engine.",
     lifespan=lifespan,
@@ -237,7 +237,7 @@ async def chat(req: ChatRequest):
         return JSONResponse(
             status_code=500,
             content={
-                "error": "Something went wrong. Try again or contact EnPro directly.",
+                "error": "Something went wrong. Try again or contact Enpro directly.",
                 "detail": str(e),
             },
         )
@@ -522,7 +522,7 @@ async def compare_suggestions(req: CompareSuggestRequest):
 
 
 class EmailReportRequest(BaseModel):
-    subject: str = "EnPro FM Portal — Report"
+    subject: str = "Enpro FM Portal — Report"
     body: str = ""
     reports: list = []
 
@@ -588,7 +588,7 @@ async def email_report(req: EmailReportRequest):
                     f"<td>{html_escape(str(r.get('timestamp','')))}</td></tr>"
                 )
             html_parts.append("</table>")
-        html_parts.append("<br><p><em>— EnPro Filtration Mastermind</em></p></body></html>")
+        html_parts.append("<br><p><em>— Enpro Filtration Mastermind</em></p></body></html>")
 
         msg.attach(MIMEText("\n".join(html_parts), "html"))
 
@@ -941,7 +941,7 @@ async def widget_js():
             <svg width="28" height="28" fill="white" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
         </div>
         <div id="fm-chat" style="display:none;position:fixed;bottom:90px;right:20px;width:380px;max-height:520px;background:white;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.2);z-index:10000;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;">
-            <div style="background:#1a56db;color:white;padding:14px 16px;font-weight:600;font-size:15px;">EnPro Filtration Mastermind</div>
+            <div style="background:#1a56db;color:white;padding:14px 16px;font-weight:600;font-size:15px;">Enpro Filtration Mastermind</div>
             <div id="fm-messages" style="height:360px;overflow-y:auto;padding:12px;"></div>
             <div style="padding:8px 12px;border-top:1px solid #e5e7eb;display:flex;gap:8px;">
                 <input id="fm-input" type="text" placeholder="Ask about filters..." style="flex:1;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;" />
@@ -988,7 +988,7 @@ async def widget_js():
     document.getElementById('fm-input').onkeypress = function(e) { if (e.key === 'Enter') sendMessage(); };
 
     // Welcome message
-    addMessage('Welcome to the EnPro Filtration Mastermind! Ask me about any filter, part number, or application.', 'bot');
+    addMessage('Welcome to the Enpro Filtration Mastermind! Ask me about any filter, part number, or application.', 'bot');
 })();
 """.strip()
     return PlainTextResponse(content=js, media_type="application/javascript")

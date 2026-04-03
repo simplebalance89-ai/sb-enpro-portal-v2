@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Configuration
+Enpro Filtration Mastermind Portal — Configuration
 Pydantic Settings with env var loading.
 """
 

@@ -1,5 +1,5 @@
 """
-EnPro Filtration Mastermind Portal — Search Engine
+Enpro Filtration Mastermind Portal — Search Engine
 Pandas-based 5-column cascade search with normalization, multi-word AND,
 stock filtering, and clean product formatting.
 """
@@ -351,7 +351,7 @@ def format_product(row: pd.Series) -> dict:
     elif price_1 > 0:
         product["Price"] = f"${price_1:,.2f}"
     else:
-        product["Price"] = "Contact EnPro for pricing"
+        product["Price"] = "Contact Enpro for pricing"
 
     # Stock by location — hide zero-stock locations
     stock = {}
