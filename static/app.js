@@ -1958,12 +1958,6 @@
         html += '<label style="display:block; font-size:14px; margin-bottom:6px;">Manufacturer <span style="color:#666; font-size:12px;">(optional)</span></label>';
         html += '<select id="pregameManufacturer" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
         html += '<option value="">-- Any manufacturer --</option>';
-        html += '<option value="Pall">Pall</option>';
-        html += '<option value="Graver">Graver</option>';
-        html += '<option value="Filtrox">Filtrox</option>';
-        html += '<option value="Cobetter">Cobetter</option>';
-        html += '<option value="Shelco">Shelco</option>';
-        html += '<option value="Pentair">Pentair</option>';
         html += '</select>';
         html += '</div>';
         
@@ -1973,7 +1967,22 @@
         html += '</div>';
         
         modalHint.innerHTML = html;
-        
+
+        // Dynamically load manufacturers into pregame dropdown
+        fetch(API_BASE + '/api/manufacturers/list')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var sel = document.getElementById('pregameManufacturer');
+                if (sel && data.manufacturers) {
+                    data.manufacturers.forEach(function(mfr) {
+                        var opt = document.createElement('option');
+                        opt.value = mfr;
+                        opt.textContent = mfr;
+                        sel.appendChild(opt);
+                    });
+                }
+            }).catch(function() {});
+
         // Hide other elements
         var el;
         el = document.getElementById('industrySelect'); if (el) el.style.display = 'none';
