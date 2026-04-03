@@ -64,6 +64,19 @@ def load_inventory() -> pd.DataFrame:
     logger.info("Loading live inventory from Azure Blob...")
     try:
         df = _read_csv("inventory_live.csv")
+        # Normalize column names: SQL view uses P21_Item_ID and Qty_Loc10 (no underscore)
+        # but merge_data() joins on Part_Number and expects Qty_Loc_10 (with underscore)
+        rename_map = {}
+        if "P21_Item_ID" in df.columns and "Part_Number" not in df.columns:
+            rename_map["P21_Item_ID"] = "Part_Number"
+        if "Qty_Loc10" in df.columns and "Qty_Loc_10" not in df.columns:
+            rename_map["Qty_Loc10"] = "Qty_Loc_10"
+            rename_map["Qty_Loc12"] = "Qty_Loc_12"
+            rename_map["Qty_Loc22"] = "Qty_Loc_22"
+            rename_map["Qty_Loc30"] = "Qty_Loc_30"
+        if rename_map:
+            df = df.rename(columns=rename_map)
+            logger.info(f"Inventory columns renamed: {rename_map}")
         logger.info(f"Live inventory loaded: {len(df)} rows")
         return df
     except Exception as e:
