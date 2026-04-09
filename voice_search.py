@@ -245,6 +245,10 @@ def preprocess_transcript(text: str) -> str:
         if re.search(pattern, lower, re.IGNORECASE):
             lower = re.sub(pattern, canonical, lower, flags=re.IGNORECASE)
 
+    # Fix Whisper STT adding spaces in part numbers: "HC 9600" → "HC9600"
+    lower = re.sub(r'([A-Za-z])\s+(\d)', r'\1\2', lower)
+    lower = re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', lower)
+
     return lower
 
 
