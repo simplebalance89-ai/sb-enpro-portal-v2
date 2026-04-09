@@ -434,7 +434,7 @@
         var queryStart = Date.now();
 
         try {
-            const res = await fetch(API_BASE + '/api/chat', {
+            const res = await fetch(API_BASE + '/api/chat-v2', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text, session_id: sessionId })
@@ -2339,7 +2339,7 @@
         printWin.document.write('.card-actions{display:none;}.stock-qty{font-weight:700;}');
         printWin.document.write('</style></head><body>');
         printWin.document.write(card.outerHTML);
-        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Enpro Inc. | service@enproinc.com | 1 (800) 323-2416</div>');
+        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Check in with the office for assistance</div>');
         printWin.document.write('</body></html>');
         printWin.document.close();
         printWin.print();
@@ -2370,7 +2370,7 @@
             text = text.slice(0, -3) + '\n';
         }
         text += '─'.repeat(40) + '\n';
-        text += 'Enpro Inc. | service@enproinc.com | 1 (800) 323-2416\n';
+        text += 'Check in with the office for assistance\n';
 
         copyToClipboard(text, btn);
     };
@@ -2933,7 +2933,7 @@
         .then(function (data) {
             if (data.status === 'saved') {
                 closeQuoteModal();
-                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Contact: service@enproinc.com | 1 (800) 323-2416');
+                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Check in with the office for assistance');
                 // Reset
                 quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
                 quoteItems = [];
@@ -2984,7 +2984,7 @@
         var queryStart = Date.now();
 
         try {
-            var res = await fetch(API_BASE + '/api/chat', {
+            var res = await fetch(API_BASE + '/api/chat-v2', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text, session_id: sessionId, mode: 'ask_john' })
@@ -3434,67 +3434,83 @@
                 appendMessage('user', '🎤 Voice search...');
 
                 try {
+                    // Step 1: Send audio to Whisper STT
                     var formData = new FormData();
                     formData.append('file', blob, 'recording.webm');
-                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: formData });
+                    var sttResp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: formData });
 
-                    if (!resp.ok) {
+                    if (!sttResp.ok) {
                         appendMessage('bot', 'Voice search failed. Try again or type your query.');
                         userInput.placeholder = 'Ask about a part, chemical, or product...';
                         return;
                     }
 
-                    var data = await resp.json();
+                    var sttData = await sttResp.json();
+                    var transcript = sttData.transcript || '';
 
-                    // Show what was heard
-                    if (data.transcript) {
-                        appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
-                        
-                        // Check for voice commands
-                        var voiceCmd = checkVoiceCommands(data.transcript);
+                    // Check for voice commands
+                    if (transcript) {
+                        var voiceCmd = checkVoiceCommands(transcript);
                         if (voiceCmd) {
-                            // Command handled, stop processing
                             return;
                         }
                     }
 
-                    // Show confidence suggestions only when we are at/above the 90% gate.
-                    if (data.suggestions && data.suggestions.length > 0) {
-                        var strongSuggestions = data.suggestions.filter(function (s) {
-                            return (s.confidence || 0) >= 0.90;
-                        });
+                    // Step 2: Send transcript to Voice Echo for predictive response
+                    var echoResp = await fetch(API_BASE + '/api/voice-echo', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            query: transcript,
+                            session_id: sessionId,
+                            defer: true  // Enable deferred deep lookups
+                        })
+                    });
 
-                        if (strongSuggestions.length > 0) {
-                            var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
-                            sugHtml += '<strong>Did you mean?</strong><br>';
-                            strongSuggestions.forEach(function (s) {
-                                sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
-                                sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
-                                sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
-                            });
-                            sugHtml += '</div>';
-                            appendMessage('bot', sugHtml);
-                        } else {
-                            var question = 'What did you want in inventory? Please repeat it more clearly.';
-                            appendCard(renderVoiceClarifyCard(question, ''));
-                        }
+                    if (!echoResp.ok) {
+                        // Fallback to regular search
+                        appendMessage('bot', 'Let me search for that...');
+                        sendMessage(transcript);
+                        return;
                     }
 
-                    // Render product results using existing card renderer
-                    if (data.results && data.results.length > 0) {
-                        var count = data.total_found || data.results.length;
-                        appendMessage('bot', '<strong>' + count + ' product' + (count !== 1 ? 's' : '') + ' found</strong>' +
-                            (data.filters_applied ? ' <span style="color:#666;font-size:12px;">(' + data.filters_applied.join(', ') + ')</span>' : ''));
-                        data.results.forEach(function (product) {
+                    var echoData = await echoResp.json();
+
+                    // Handle deferred response (deep lookup)
+                    if (echoData.deferred) {
+                        appendMessage('bot', '<em>Give me a second while I look that up...</em>');
+                        // Poll for deferred result
+                        pollForEchoResult(transcript);
+                        return;
+                    }
+
+                    // Handle immediate response with predictions
+                    if (echoData.response) {
+                        appendMessage('bot', echoData.response);
+                    }
+
+                    // Show predictions/echoes if available
+                    if (echoData.echoes && echoData.echoes.length > 0) {
+                        var echoHtml = '<div class="echo-suggestions" style="background:#e8f4ff;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
+                        echoHtml += '<strong>You might also want:</strong><br>';
+                        echoData.echoes.forEach(function (e) {
+                            echoHtml += '<span style="color:#0066CC;cursor:pointer;" onclick="sendMessage(\'' + esc(e.query) + '\')">';
+                            echoHtml += '• ' + esc(e.query) + '</span><br>';
+                        });
+                        echoHtml += '</div>';
+                        appendMessage('bot', echoHtml);
+                    }
+
+                    // Render product results if included
+                    if (echoData.products && echoData.products.length > 0) {
+                        echoData.products.forEach(function (product) {
                             appendCard(renderProductCard(product));
                         });
-                    } else {
-                        appendCard(renderVoiceFallbackCard(data.transcript || '', data));
                     }
 
                 } catch (err) {
-                    console.error('Voice search error:', err);
-                    appendMessage('bot', 'Voice search failed. Try typing instead.');
+                    console.error('Voice Echo error:', err);
+                    appendMessage('bot', 'Voice processing failed. Try typing instead.');
                 }
 
                 userInput.placeholder = 'Ask about a part, chemical, or product...';
@@ -3521,6 +3537,45 @@
         if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
             voiceMediaRecorder.stop();
         }
+    }
+
+    // Poll for deferred Voice Echo results (deep lookups)
+    async function pollForEchoResult(query) {
+        var maxAttempts = 15;  // 15 seconds max
+        var attempt = 0;
+        
+        var pollInterval = setInterval(async function() {
+            attempt++;
+            
+            try {
+                var resp = await fetch(API_BASE + '/api/voice-echo-cache');
+                if (!resp.ok) return;
+                
+                var data = await resp.json();
+                var cache = data.cache || [];
+                
+                // Find our query in the cache
+                var match = cache.find(function(item) {
+                    return item.query.toLowerCase() === query.toLowerCase();
+                });
+                
+                if (match && match.products && match.products.length > 0) {
+                    clearInterval(pollInterval);
+                    // Show the deferred result
+                    appendMessage('bot', '<strong>Here\'s what I found:</strong>');
+                    match.products.forEach(function(product) {
+                        appendCard(renderProductCard(product));
+                    });
+                }
+                
+                if (attempt >= maxAttempts) {
+                    clearInterval(pollInterval);
+                    appendMessage('bot', 'Still looking. Try typing your query for faster results.');
+                }
+            } catch (e) {
+                console.error('Poll error:', e);
+            }
+        }, 1000);  // Poll every second
     }
 
     // Text-to-Speech — read bot responses aloud

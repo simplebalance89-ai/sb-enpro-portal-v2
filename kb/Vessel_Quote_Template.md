@@ -2,7 +2,7 @@
 
 Use this template when gathering requirements for vessel quotes. All fields should be collected before submitting to engineering.
 
-**Contact:** service@enproinc.com | 1 (800) 323-2416
+**Contact:** check in with the office
 
 ---
 

@@ -182,7 +182,7 @@ Source: Chemical_Compatibility_Crosswalk.xlsx + 42_Constraints_Rules.md
 USER: "Customer needs 500 F service"
 
 **ESCALATION REQUIRED.** Temperature exceeds 400 F limit.
-Contact EnPro engineering: service@enproinc.com or 1 (800) 323-2416.
+Contact EnPro engineering: check in with the office.
 
 For reference:
 1. Standard meltblown (PP): rated to 302 F

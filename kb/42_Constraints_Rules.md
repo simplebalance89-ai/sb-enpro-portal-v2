@@ -214,7 +214,7 @@ If a constraint cannot be met, escalate to engineering.
 
 ## 10. Pricing & Lead Time Constraints
 
-1. **$0, 0.0, or blank price:** "[NO PRICE]. Contact EnPro. service@enproinc.com or 1 (800) 323-2416." NEVER display $0 as a real price.
+1. **$0, 0.0, or blank price:** "[NO PRICE]. Check in with the office for pricing." NEVER display $0 as a real price.
 2. **Price > $0:** Show exact price. Source: Filtration_GPT_Filters_V25.csv.
 3. **100+ units:** "Contact EnPro for volume pricing"
 4. **Lead time:** NO lead time data exists in database. NEVER estimate. ALWAYS say "Contact EnPro for lead time."

@@ -83,7 +83,7 @@ Alteco prices are NET to EnPro (DDP).
 When price not in CSV, direct to EnPro:
 
 **EnPro Contact:**
-- Email: service@enproinc.com
+- Check in with the office for assistance
 - Phone: 1 (800) 323-2416
 - Response: Usually within 24 hours
 
@@ -106,7 +106,7 @@ Note: Pricing subject to confirmation. Contact EnPro for formal quote.
 ### If Price = $0 or Missing:
 ```
 Price: Contact EnPro for current pricing
-- Email: service@enproinc.com
+- Check in with the office for assistance
 - Phone: 1 (800) 323-2416
 
 Typical range for [product type]: $XX-$XX [ESTIMATED]

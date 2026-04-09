@@ -35,6 +35,8 @@ from quote_state import (
 from voice_search import init_voice_search, voice_search_pipeline
 from voice_gate import VoiceGate
 from voice_echo import VoiceEcho
+from conversational_router import ConversationalRouter, get_conversational_router
+from conversation_context import context_manager
 
 logger = logging.getLogger("enpro.server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -52,6 +54,7 @@ class AppState:
     data_loaded: bool = False
     voice_gate: Optional[VoiceGate] = None
     voice_echo: Optional[VoiceEcho] = None
+    conversational_router: Optional[ConversationalRouter] = None
 
 
 state = AppState()
@@ -108,8 +111,11 @@ async def lifespan(app: FastAPI):
                 state.voice_gate = VoiceGate.from_dataframe(state.df)
                 state.voice_echo = VoiceEcho(state.voice_gate, delay_seconds=8, defer_seconds=15)  # 8s initial + 15s deep lookup = 23s total
                 logger.info("Voice Echo initialized with predictive pre-fetch")
+                # Initialize conversational router
+                state.conversational_router = get_conversational_router(state.voice_gate)
+                logger.info("Conversational router initialized")
             except Exception as ve:
-                logger.error(f"Voice Echo init failed: {ve}")
+                logger.error(f"Voice Echo/Conversational router init failed: {ve}")
         else:
             logger.error("Startup data load completed with zero products; portal will stay degraded")
     except Exception as e:
@@ -241,6 +247,32 @@ async def chat(req: ChatRequest):
                 "detail": str(e),
             },
         )
+
+
+@app.post("/api/chat-v2")
+async def chat_conversational(req: ChatRequest):
+    """
+    NEW v2.16: Conversational chat endpoint.
+    Natural language only - no commands. Context-aware responses.
+    """
+    if not state.data_loaded or not state.conversational_router:
+        # Fall back to legacy chat if conversational router not ready
+        return await chat(req)
+    
+    try:
+        result = await state.conversational_router.handle_message(
+            message=req.message,
+            session_id=req.session_id,
+            df=state.df,
+            chemical_df=state.chemicals_df,
+        )
+        # Include quote state for backward compatibility
+        result["quote_state"] = snapshot_quote_state(req.session_id)
+        return result
+    except Exception as e:
+        logger.error(f"Conversational chat error: {e}", exc_info=True)
+        # Fall back to legacy chat on error
+        return await chat(req)
 
 
 @app.post("/api/lookup")
@@ -810,8 +842,8 @@ async def voice_echo_endpoint(req: VoiceEchoRequest):
     Voice Echo — Predictive voice search with accuracy grading and deferred responses.
     
     For deep queries (specs, manufacturer, crosswalk), set defer=True to get
-    "Give me a second while I look that up..." immediately, then poll /voice-echo-status
-    for the echo response (~10 seconds later).
+    "Give me a second while I look that up..." immediately, then poll /voice-echo-cache
+    for the echo response (~10-15 seconds later).
     """
     if not state.data_loaded or not state.voice_echo:
         return JSONResponse(
@@ -830,11 +862,40 @@ async def voice_echo_endpoint(req: VoiceEchoRequest):
             defer=should_defer
         )
         
+        # Get echoes (predictions) for follow-up suggestions
+        echoes = []
+        if not should_defer:
+            # Get top predictions from cache
+            for key, echo in list(state.voice_echo.echo_cache.items())[:5]:
+                if echo.source_query.lower() == req.query.lower():
+                    echoes.append({
+                        "query": echo.predicted_query,
+                        "confidence": echo.confidence,
+                    })
+        
+        # Get products if available
+        products = []
+        if grade.match_type != "deferred" and grade.products_found > 0:
+            # Get the actual product data
+            cached = state.voice_echo.echo_cache.get(req.query.lower())
+            if cached and cached.products:
+                for p in cached.products:
+                    products.append({
+                        "Part_Number": p.get("part_number", ""),
+                        "Description": p.get("description", ""),
+                        "Manufacturer": p.get("manufacturer", ""),
+                        "Price": p.get("price", 0),
+                        "In_Stock": p.get("in_stock", None),
+                    })
+        
         return {
             "response": response,
+            "transcript": req.query,
             "accuracy_pct": grade.accuracy_pct,
             "match_type": grade.match_type,
             "products_found": grade.products_found,
+            "products": products,
+            "echoes": echoes,
             "deferred": grade.match_type == "deferred",
             "echo_ready": False if grade.match_type == "deferred" else True,
             "session_id": req.session_id,
@@ -887,17 +948,29 @@ async def voice_echo_status(session_id: str = "default"):
 @app.get("/api/voice-echo-cache")
 async def voice_echo_cache():
     """
-    Get current echo cache contents (for debugging).
+    Get current echo cache contents (for polling deferred results).
     """
     if not state.voice_echo:
         return {"cache": []}
     
     cache_items = []
     for key, echo in state.voice_echo.echo_cache.items():
+        # Convert products to frontend-friendly format
+        products = []
+        for p in echo.products:
+            products.append({
+                "Part_Number": p.get("part_number", ""),
+                "Description": p.get("description", ""),
+                "Manufacturer": p.get("manufacturer", ""),
+                "Price": p.get("price", 0),
+                "In_Stock": p.get("in_stock", None),
+                "Qty_On_Hand": p.get("qty", 0),
+            })
+        
         cache_items.append({
             "query": key,
             "confidence": echo.confidence,
-            "products": len(echo.products),
+            "products": products,
             "source": echo.source_query,
         })
     

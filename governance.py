@@ -32,7 +32,7 @@ ESCALATION_KEYWORDS = [
 
 ESCALATION_RESPONSE = (
     "This application requires engineering review. "
-    "Contact Enpro: service@enproinc.com | 1 (800) 323-2416"
+    "Check in with the office for assistance"
 )
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ def _check_volume_pricing(message: str, context: Optional[dict] = None) -> Optio
                 "check": "volume_pricing",
                 "response": (
                     "Contact Enpro for volume pricing — "
-                    "service@enproinc.com or 1 (800) 323-2416."
+                    "Check in with the office for assistance."
                 ),
             }
     return None
@@ -165,7 +165,7 @@ def _check_shipping(message: str, context: Optional[dict] = None) -> Optional[di
                 "check": "shipping",
                 "response": (
                     "Contact Enpro for shipping and delivery — "
-                    "service@enproinc.com or 1 (800) 323-2416."
+                    "Check in with the office for assistance."
                 ),
             }
     return None

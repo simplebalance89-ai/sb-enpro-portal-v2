@@ -93,7 +93,7 @@ If ALL zero = "Out of Stock."
 2. PRICE HANDLING — Price = 0 or blank = "[NO PRICE]. Contact Enpro for pricing." Never show $0.
 3. ALWAYS SEARCH FIRST — Maximum ONE clarifying question. Never ask two in a row. Search > Ask.
 4. SHOW REAL NUMBERS — Use actual pricing. Example: $52. Never "approximate."
-5. OUT OF SCOPE — Not filtration = "Outside my scope. I'm built for filtration." Under 2 sentences. Shipping/ordering = "Contact Enpro at service@enproinc.com or 1 (800) 323-2416."
+5. OUT OF SCOPE — Not filtration = "Outside my scope. I'm built for filtration." Under 2 sentences. Shipping/ordering = "Check in with the office for assistance."
 6. NO INTERNAL REFERENCES — Never show file names, system labels, version numbers, rule names.
 7. NUMBERED LISTS ONLY — No bullets, dashes, or symbols. All structured output must be numbered.
 8. ALTERNATIVES MUST BE IN STOCK — Must have Qty > 0. If none = "No in-stock alternatives. Contact Enpro for lead times."
@@ -133,7 +133,7 @@ If ALL zero = "Out of Stock."
 11. < 0.2 micron
 12. Missing certification
 
-Escalation response: "Contact Enpro. service@enproinc.com / 1 (800) 323-2416."
+Escalation response: "Check in with the office for assistance."
 
 ## OUTPUT FORMAT
 
@@ -150,7 +150,7 @@ lookup, price, compare, manufacturer, chemical, pregame, application, quote read
 
 ## CONTACT
 
-service@enproinc.com | 1 (800) 323-2416
+Check in with the office for assistance
 """
 
 PREGAME_SYSTEM_PROMPT = """You are the Enpro Filtration Mastermind — pre-call meeting prep specialist.
@@ -175,7 +175,7 @@ RULES:
 - If no products match, say so and recommend contacting Enpro.
 - Keep it to 5 bullets. No walls of text. This is a quick prep sheet a salesperson reads in 2 minutes before a call.
 - Numbered lists only. No bullets, dashes, or symbols.
-- End with: "For additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416"
+- End with: "For additional information: Enpro Inc — Check in with the office for assistance"
 """
 
 CHEMICAL_SYSTEM_PROMPT = """You are the Enpro Filtration Mastermind — chemical compatibility specialist.
@@ -238,7 +238,7 @@ Chemical absent from ALL sources: ESCALATE FIRST. "This chemical requires engine
 5. Key Considerations: [temperature, concentration]
 6. Enpro Recommendation: [specific product type with seals]
 
-Contact: service@enproinc.com | 1 (800) 323-2416
+Contact: Check in with the office for assistance
 """
 
 # ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ HELP_RESPONSE = """Enpro Filtration Mastermind — Commands:
 13. help — This command list
 14. reset — Clear context, fresh start
 
-Contact: service@enproinc.com | 1 (800) 323-2416"""
+Contact: Check in with the office for assistance"""
 
 RESET_RESPONSE = "Context cleared. Fresh start. How can I help you with filtration?"
 
@@ -563,7 +563,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
                 "products": products,
             }
         return {
-            "response": "I couldn't find that product. Can you double-check the part number or description?\nContact: service@enproinc.com | 1 (800) 323-2416",
+            "response": "I couldn't find that product. Can you double-check the part number or description?\nContact: Check in with the office for assistance",
             "intent": intent,
             "cost": "$0",
         }
@@ -660,7 +660,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
                 "products": products,
             }
         return {
-            "response": "I couldn't find products from that manufacturer. What brand are you looking for?\nContact: service@enproinc.com | 1 (800) 323-2416",
+            "response": "I couldn't find products from that manufacturer. What brand are you looking for?\nContact: Check in with the office for assistance",
             "intent": intent,
             "cost": "$0",
         }
@@ -689,7 +689,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
                 "products": products,
             }
         return {
-            "response": "No products found for that supplier code. Try a different code or contact Enpro.\nContact: service@enproinc.com | 1 (800) 323-2416",
+            "response": "No products found for that supplier code. Try a different code or contact Enpro.\nContact: Check in with the office for assistance",
             "intent": intent,
             "cost": "$0",
         }
@@ -783,7 +783,7 @@ def _try_chemical_fast_path(
         f"{n}. Contact Enpro for chemical compatibility review and SDS submission."
     )
     n += 1
-    lines.append(f"\nContact: service@enproinc.com | 1 (800) 323-2416")
+    lines.append(f"\nContact: Check in with the office for assistance")
 
     return {
         "response": "\n".join(lines),
@@ -1015,7 +1015,7 @@ def _validate_response_parts(response: str, provided_products: list, df: pd.Data
         disclaimer = (
             "\n\n**Note:** Some part numbers referenced above could not be verified in the current catalog. "
             "Always confirm part numbers with Enpro before ordering. "
-            "Contact: service@enproinc.com | 1 (800) 323-2416"
+            "Contact: Check in with the office for assistance"
         )
         response += disclaimer
 
@@ -1078,7 +1078,7 @@ def _format_product_response(product: dict) -> str:
     lines.append(f"{n}. Check chemical compatibility")
     n += 1
     lines.append(f"{n}. Pregame a meeting with this product")
-    lines.append(f"\nFor additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416")
+    lines.append(f"\nFor additional information: Enpro Inc — Check in with the office for assistance")
     return "\n".join(lines)
 
 
@@ -1088,7 +1088,7 @@ def _format_search_response(result: dict) -> str:
     total = result.get("total_found", 0)
 
     if not products:
-        return "No products found matching your search. Try a different part number, description, or manufacturer.\nContact: service@enproinc.com | 1 (800) 323-2416"
+        return "No products found matching your search. Try a different part number, description, or manufacturer.\nContact: Check in with the office for assistance"
 
     lines = [f"Found **{total}** matching products "]
     if total > len(products):
@@ -1119,6 +1119,6 @@ def _format_search_response(result: dict) -> str:
     else:
         lines.append(f"2. Compare products")
     lines.append(f"3. Check chemical compatibility")
-    lines.append(f"\nFor additional information: Enpro Inc — service@enproinc.com | 1 (800) 323-2416")
+    lines.append(f"\nFor additional information: Enpro Inc — Check in with the office for assistance")
 
     return "\n".join(lines)
