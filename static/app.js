@@ -3964,7 +3964,7 @@
                 window.__fmVoiceBusy = true;
                 lastInteractionWasVoice = true;
                 userInput.placeholder = 'Processing voice...';
-                appendMessage('user', '\ud83c\udfa4 Voice search...');
+                appendMessage('user','Voice search...');
 
                 try {
                     var formData = new FormData();
