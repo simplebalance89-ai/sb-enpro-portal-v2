@@ -1940,7 +1940,7 @@
 <div class="header">
     <div class="header-logo">Ep</div>
     <div style="flex:1;">
-        <div class="header-title">Filtration Mastermind <span style="font-size:11px; font-weight:400; opacity:0.7; margin-left:6px;">V2.0</span></div>
+        <div class="header-title">Filtration Mastermind <span style="font-size:11px; font-weight:400; opacity:0.7; margin-left:6px;">V2.16</span></div>
         <div class="header-sub">Enpro Inc. Product Intelligence</div>
     </div>
     <button onclick="toggleDarkMode()" id="darkModeBtn" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3); color:white; padding:6px 10px; border-radius:6px; font-size:15px; cursor:pointer;" title="Toggle dark mode">&#9790;</button>
@@ -1948,23 +1948,11 @@
     <button onclick="newChat()" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3); color:white; padding:6px 14px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap;">New Chat</button>
 </div>
 
-<!-- Quick Actions -->
-<div class="quick-actions">
+<!-- Quick Actions - HIDDEN in v2.16 for cleaner conversational UI -->
+<div class="quick-actions" style="display:none;">
     <div class="qa-row" style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; width:100%;">
         <button class="qa-btn" onclick="showModal('lookup')">
             <span class="qa-icon">&#128269;</span> Lookup Part Number
-        </button>
-        <!-- Industry button hidden for now -->
-        <button class="qa-btn" onclick="showModal('industry')" style="display:none;">
-            <span class="qa-icon">&#127981;</span> Industry
-        </button>
-        <!-- Manufacturer button hidden -->
-        <button class="qa-btn" onclick="showModal('manufacturer')" style="display:none;">
-            <span class="qa-icon">&#127981;</span> Manufacturer
-        </button>
-        <!-- Lookup by Spec button hidden for now -->
-        <button class="qa-btn" onclick="showModal('specs')" style="display:none;">
-            <span class="qa-icon">&#128295;</span> Lookup by Spec
         </button>
         <button class="qa-btn" onclick="showModal('pregame')">
             <span class="qa-icon">&#128100;</span> Customer Pre Game
@@ -1976,7 +1964,6 @@
             <span class="qa-icon">&#10068;</span> Help
         </button>
     </div>
-    <button class="qa-exit-flow" id="exitFlowBtn" onclick="exitFlow()">&#10005; Back</button>
 </div>
 
 <div class="workbench" id="workbench">
@@ -2030,14 +2017,6 @@
 
 <!-- Input -->
 <div class="input-area">
-    <!-- In Stock Filter Only -->
-    <div class="search-filters" style="display:flex; align-items:center; gap:12px; margin-right:8px;">
-        <label class="filter-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text-light); white-space:nowrap;">
-            <input type="checkbox" id="inStockFilter" style="width:16px; height:16px; cursor:pointer;">
-            <span>In Stock</span>
-        </label>
-    </div>
-    
     <textarea id="userInput" rows="1" placeholder="Ask me anything — part numbers or comparisons..."
         onkeydown="handleKeyDown(event)" oninput="autoGrow(this)"></textarea>
     <button class="mic-btn" id="micBtn" onclick="toggleVoice()" title="Tap to speak — tap again to stop">
@@ -2256,6 +2235,6 @@
     </div>
 </div>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>
