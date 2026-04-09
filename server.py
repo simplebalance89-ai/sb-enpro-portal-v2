@@ -253,26 +253,44 @@ async def chat(req: ChatRequest):
 async def chat_conversational(req: ChatRequest):
     """
     NEW v2.16: Conversational chat endpoint.
-    Natural language only - no commands. Context-aware responses.
+    Uses legacy router but with conversational response formatting.
     """
-    if not state.data_loaded or not state.conversational_router:
-        # Fall back to legacy chat if conversational router not ready
-        return await chat(req)
+    if not state.data_loaded:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Data not loaded yet. Try again in a moment."},
+        )
     
     try:
-        result = await state.conversational_router.handle_message(
+        # Use the proven legacy handler
+        result = await handle_message(
             message=req.message,
             session_id=req.session_id,
+            mode=req.mode,
             df=state.df,
-            chemical_df=state.chemicals_df,
+            chemicals_df=state.chemicals_df,
         )
-        # Include quote state for backward compatibility
+        
+        # Add conversational wrapper if it's a simple response
+        if "response" in result and "intent" in result:
+            response_text = result["response"]
+            # Make it more conversational - remove command prompts
+            response_text = response_text.replace("say lookup", "ask me")
+            response_text = response_text.replace("say price", "ask about pricing")
+            response_text = response_text.replace("say compare", "ask to compare")
+            result["response"] = response_text
+        
         result["quote_state"] = snapshot_quote_state(req.session_id)
         return result
     except Exception as e:
-        logger.error(f"Conversational chat error: {e}", exc_info=True)
-        # Fall back to legacy chat on error
-        return await chat(req)
+        logger.error(f"Chat error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "response": "I'm having trouble right now. Check in with the office for assistance.",
+                "error": str(e),
+            },
+        )
 
 
 @app.post("/api/lookup")
