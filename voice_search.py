@@ -837,12 +837,13 @@ async def voice_search_pipeline(transcript: str, df: pd.DataFrame) -> dict:
             "error": "No transcript received",
         }
 
-    # Step 1: Pre-process
-    cleaned = preprocess_transcript(transcript)
-    logger.info(f"Voice search — raw: '{transcript}' → cleaned: '{cleaned}'")
-
-    # Step 2: Fast path — direct part number detection
-    part_num = detect_part_number(cleaned)
+    # Step 1: Simple cleanup - just lowercase and strip
+    cleaned = transcript.lower().strip().rstrip('.')
+    
+    # Step 2: Fast path — direct part number detection (try raw first, then cleaned)
+    part_num = detect_part_number(transcript)
+    if not part_num:
+        part_num = detect_part_number(cleaned)
     if part_num:
         from search import lookup_part
         product = lookup_part(df, part_num)

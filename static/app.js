@@ -341,9 +341,6 @@
         } else {
             html += 'Let us narrow it down from the last query.';
         }
-        if (cleaned) {
-            html += '<div style="margin-top:6px; color:var(--text-light); font-size:13px;">Cleaned query: ' + esc(cleaned) + '</div>';
-        }
         html += '</div>';
 
         html += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
