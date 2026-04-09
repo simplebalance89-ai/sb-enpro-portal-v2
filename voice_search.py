@@ -245,10 +245,6 @@ def preprocess_transcript(text: str) -> str:
         if re.search(pattern, lower, re.IGNORECASE):
             lower = re.sub(pattern, canonical, lower, flags=re.IGNORECASE)
 
-    # Fix Whisper STT adding spaces in part numbers: "HC 9600" → "HC9600"
-    lower = re.sub(r'([A-Za-z])\s+(\d)', r'\1\2', lower)
-    lower = re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', lower)
-
     return lower
 
 
@@ -265,6 +261,14 @@ def detect_part_number(text: str) -> Optional[str]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(0)
+    
+    # Try with spaces removed (Whisper sometimes adds spaces)
+    text_nospace = re.sub(r'([A-Za-z])\s+(\d)', r'\1\2', text)
+    for pattern in patterns:
+        match = re.search(pattern, text_nospace, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    
     return None
 
 
@@ -290,7 +294,7 @@ Omit fields not mentioned. Use null for uncertain values.
 PART NUMBER EXTRACTION — IMPORTANT
 Be aggressive about identifying part-number candidates. ANY of these patterns should be extracted as part_number:
 - All-uppercase tokens 4+ characters that look code-like (HC9020, CLR510, BE10S7S1)
-- Mixed alphanumerics with no spaces (HC-9021FAS4Z, MX12-30NN)
+- Mixed alphanumerics with no spaces (HC9021FAS4Z, MX1230NN)
 - Words that are clearly NOT English words OR filtration terms but resemble part codes (HALLUCINATE1, GHOST-PART, XXXXXXXXX, NONEXIST001)
 - ALL-CAPS sequences of 6+ letters even without digits (XXXXXXXXX, ABCXYZ, NOTREAL)
 - Any token that looks like garbage text the user wants looked up
@@ -309,7 +313,7 @@ Examples:
 "CLR510" → {"part_number":"CLR510"}
 "look up FAKE12345 10 micron glass fiber" → {"part_number":"FAKE12345","micron":10,"media":"Glass Fiber"}
 "HALLUCINATE1 glass fiber element" → {"part_number":"HALLUCINATE1","media":"Glass Fiber","product_type":"Elements"}
-"GHOST-PART 150 PSI element" → {"part_number":"GHOST-PART","max_psi":150,"product_type":"Elements"}
+"GHOSTPART 150 PSI element" → {"part_number":"GHOSTPART","max_psi":150,"product_type":"Elements"}
 "XXXXXXXXX 5 micron filter" → {"part_number":"XXXXXXXXX","micron":5}
 "compressed air filter element" → {"application":"Compressed Air","product_type":"Elements"}
 "pharmaceutical water treatment filter" → {"application":"Water Treatment","industry":"Pharmaceutical"}
