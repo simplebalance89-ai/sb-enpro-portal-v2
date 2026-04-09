@@ -3456,57 +3456,34 @@
                         }
                     }
 
-                    // Step 2: Send transcript to Voice Echo for predictive response
-                    var echoResp = await fetch(API_BASE + '/api/voice-echo', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            query: transcript,
-                            session_id: sessionId,
-                            defer: true  // Enable deferred deep lookups
-                        })
-                    });
-
-                    if (!echoResp.ok) {
-                        // Fallback to regular search
-                        appendMessage('bot', 'Let me search for that...');
-                        sendMessage(transcript);
-                        return;
-                    }
-
-                    var echoData = await echoResp.json();
-
-                    // Handle deferred response (deep lookup)
-                    if (echoData.deferred) {
-                        appendMessage('bot', '<em>Give me a second while I look that up...</em>');
-                        // Poll for deferred result
-                        pollForEchoResult(transcript);
-                        return;
-                    }
-
-                    // Handle immediate response with predictions
-                    if (echoData.response) {
-                        appendMessage('bot', echoData.response);
-                    }
-
-                    // Show predictions/echoes if available
-                    if (echoData.echoes && echoData.echoes.length > 0) {
-                        var echoHtml = '<div class="echo-suggestions" style="background:#e8f4ff;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
-                        echoHtml += '<strong>You might also want:</strong><br>';
-                        echoData.echoes.forEach(function (e) {
-                            echoHtml += '<span style="color:#0066CC;cursor:pointer;" onclick="sendMessage(\'' + esc(e.query) + '\')">';
-                            echoHtml += '• ' + esc(e.query) + '</span><br>';
+                    // Try Voice Echo, fallback to regular search on error
+                    try {
+                        var echoResp = await fetch(API_BASE + '/api/voice-echo', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                query: transcript,
+                                session_id: sessionId,
+                                defer: false  // Don't defer for now
+                            })
                         });
-                        echoHtml += '</div>';
-                        appendMessage('bot', echoHtml);
+                        
+                        if (echoResp.ok) {
+                            var echoData = await echoResp.json();
+                            if (echoData.products && echoData.products.length > 0) {
+                                // Show Voice Echo results
+                                echoData.products.forEach(function(product) {
+                                    appendCard(renderProductCard(product));
+                                });
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Voice Echo error:', e);
                     }
-
-                    // Render product results if included
-                    if (echoData.products && echoData.products.length > 0) {
-                        echoData.products.forEach(function (product) {
-                            appendCard(renderProductCard(product));
-                        });
-                    }
+                    
+                    // Fallback to regular search
+                    sendMessage(transcript);
 
                 } catch (err) {
                     console.error('Voice Echo error:', err);

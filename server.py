@@ -835,15 +835,27 @@ async def voice_echo_endpoint(req: VoiceEchoRequest):
         )
     
     try:
+        # Check if voice_echo is properly initialized
+        if not state.voice_echo:
+            logger.error("Voice Echo not initialized")
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Voice Echo not initialized"}
+            )
+        
         # Determine if this is a deep query that should be deferred
         is_deep = state.voice_echo._is_deep_query(req.query)
         should_defer = req.defer and is_deep
+        
+        logger.info(f"Voice Echo query: {req.query}, is_deep: {is_deep}, defer: {should_defer}")
         
         # Process query
         response, grade = state.voice_echo.query(
             req.query, 
             defer=should_defer
         )
+        
+        logger.info(f"Voice Echo result: match_type={grade.match_type}, products_found={grade.products_found}")
         
         # Get echoes (predictions) for follow-up suggestions
         echoes = []
