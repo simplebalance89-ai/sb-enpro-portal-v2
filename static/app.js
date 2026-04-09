@@ -3958,7 +3958,7 @@
                 // before burning a Whisper call.
                 if (blob.size < 2048) {
                     userInput.placeholder = 'Ask about a part, chemical, or product...';
-                    appendMessage('bot', "I didn't catch any audio � try holding the mic and speaking clearly.");
+                    appendMessage('bot', "I didn't catch any audio - try holding the mic and speaking clearly.");
                     return;
                 }
 
@@ -3966,7 +3966,7 @@
                 window.__fmVoiceBusy = true;
                 lastInteractionWasVoice = true;
                 userInput.placeholder = 'Processing voice...';
-                appendMessage('user', '?? Voice search...');
+                appendMessage('user', '[Voice search...]');
 
                 try {
                     var formData = new FormData();
@@ -3977,9 +3977,9 @@
                         // Branch on status code so we can give a useful message
                         // instead of "Voice search failed" for everything.
                         if (resp.status === 429) {
-                            appendMessage('bot', 'Whisper is busy right now � give it a sec and try again.');
+                            appendMessage('bot', 'Whisper is busy right now - give it a sec and try again.');
                         } else if (resp.status === 400) {
-                            appendMessage('bot', "I couldn't make out the audio � try again, a little louder.");
+                            appendMessage('bot', "I couldn't make out the audio - try again, a little louder.");
                         } else if (resp.status >= 500) {
                             appendMessage('bot', 'Voice service is having a moment. Try again in a few seconds, or type it instead.');
                         } else {
