@@ -3986,11 +3986,8 @@
 
                     var data = await resp.json();
 
-                    // Show what was heard
+                    // Check for voice commands
                     if (data.transcript) {
-                        appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
-                        
-                        // Check for voice commands
                         var voiceCmd = checkVoiceCommands(data.transcript);
                         if (voiceCmd) {
                             // Command handled, stop processing
