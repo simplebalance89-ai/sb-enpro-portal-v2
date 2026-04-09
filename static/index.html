@@ -1933,7 +1933,8 @@
     </style>
 </head>
 <body>
-<button class="history-open-btn" id="historyOpenBtn" onclick="toggleHistorySidebar()">&#9776; History</button>
+<!-- History sidebar hidden in v2.16 -->
+<button class="history-open-btn" id="historyOpenBtn" onclick="toggleHistorySidebar()" style="display:none;">&#9776; History</button>
 <div class="app-shell">
 
 <!-- Header -->
@@ -1967,8 +1968,8 @@
 </div>
 
 <div class="workbench" id="workbench">
-    <!-- Lane 1 — Context -->
-    <div class="lane-1 collapsed" id="lane1">
+    <!-- Lane 1 — Context - HIDDEN in v2.16 -->
+    <div class="lane-1 collapsed" id="lane1" style="display:none;">
         <div class="lane1-header">
             <span>Context</span>
             <button class="lane1-toggle" onclick="toggleLane1()" id="lane1Toggle">&#9664;</button>
@@ -1996,7 +1997,8 @@
     </div>
     <!-- Lane 2 — Chat -->
     <div class="lane-2" id="lane2" style="position:relative;">
-        <button class="lane1-expand-tab visible" id="lane1ExpandTab" onclick="toggleLane1()">&#9654; Context</button>
+        <!-- Context expand tab hidden in v2.16 -->
+        <button class="lane1-expand-tab visible" id="lane1ExpandTab" onclick="toggleLane1()" style="display:none;">&#9654; Context</button>
 
 <!-- Chat Area -->
 <div class="chat-area" id="chatArea">
@@ -2185,8 +2187,8 @@
     </div>
 </div>
 
-<!-- Session History Sidebar -->
-<div class="history-sidebar" id="historySidebar">
+<!-- Session History Sidebar - HIDDEN in v2.16 -->
+<div class="history-sidebar" id="historySidebar" style="display:none;">
     <div class="history-sidebar-header">
         <span>History</span>
         <button class="history-toggle-btn" onclick="toggleHistorySidebar()" title="Close">&times;</button>
