@@ -444,9 +444,8 @@
             trackQuery(queryStart, data);
             trackSearch(text, data.intent);
         } catch (err) {
-            appendMessage('bot', 'Connection error. Please check your network and try again.');
+            // Silently handle errors - no user-facing error message
             console.error('Chat error:', err);
-            trackError();
         } finally {
             setLoading(false);
         }
