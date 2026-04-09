@@ -733,16 +733,18 @@
         scrollToBottom();
     };
 
-    // ── Render products: 1 card if single, consolidated card if multiple ──
+    // ── Render products: full cards for all results ──
     async function renderProductsBatched(products) {
-        if (products.length === 1) {
-            // Single result — full product card
-            appendCard(renderProductCard(products[0]), false);
-            appendFollowUps(products[0].Part_Number || products[0].part_number || '');
-        } else if (products.length > 1) {
-            // Multiple results — consolidated card with expandable rows
-            appendCard(renderConsolidatedCard(products), true);
-        }
+        // Show full product cards for all results (not consolidated)
+        products.forEach(function(product, idx) {
+            setTimeout(function() {
+                appendCard(renderProductCard(product), false);
+                if (idx === products.length - 1) {
+                    // Add follow-ups after last card
+                    appendFollowUps(product.Part_Number || product.part_number || '');
+                }
+            }, idx * 100); // Stagger slightly for visual effect
+        });
     }
 
     // Consolidated card — one card, multiple products as rows
