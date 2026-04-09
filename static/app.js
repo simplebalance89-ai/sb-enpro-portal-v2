@@ -1023,6 +1023,13 @@
 
     // -- Render products: 1 card if single, consolidated card if multiple --
     async function renderProductsBatched(products) {
+        // Sort by stock: in-stock first (highest stock count), then out-of-stock
+        products.sort(function(a, b) {
+            var stockA = a.Total_Stock || a.total_stock || 0;
+            var stockB = b.Total_Stock || b.total_stock || 0;
+            return stockB - stockA; // Descending order (highest stock first)
+        });
+        
         if (products.length === 1) {
             // Single result � full product card
             appendCard(renderProductCard(products[0]), false);
@@ -1298,7 +1305,7 @@
             fields.push(['Micron', '<a class="card-link" onclick="sendMessage(\'search ' + esc(String(micron)) + ' micron filters\')">' + esc(String(micron)) + '</a>']);
         }
         if (media) fields.push(['Media', esc(String(media))]);
-        if (tempF && tempF !== '0' && tempF !== '0.0') fields.push(['Max Temp', esc(String(tempF)) + '�F']);
+        if (tempF && tempF !== '0' && tempF !== '0.0') fields.push(['Max Temp', esc(String(tempF)) + '&deg;F']);
         if (psi && psi !== '0' && psi !== '0.0') fields.push(['Max PSI', esc(String(psi)) + ' PSI']);
         if (flow) fields.push(['Flow Rate', esc(String(flow))]);
         if (eff) fields.push(['Efficiency', eff]);
