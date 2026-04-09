@@ -1,0 +1,4348 @@
+/* --------------------------------------------------------------
+   Enpro Filtration Mastermind � Frontend App
+   -------------------------------------------------------------- */
+
+(function () {
+    'use strict';
+
+    // Inject clickable card link + simulate mode styles
+    (function() {
+        var style = document.createElement('style');
+        style.textContent = [
+            '.card-link { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dashed var(--accent); transition: color 0.15s; }',
+            '.card-link:hover { color: var(--navy); border-bottom-color: var(--navy); }',
+            '.sim-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 2000; background: linear-gradient(135deg, #003366, #0066CC); color: white; padding: 12px 20px; display: flex; align-items: center; gap: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); font-family: inherit; }',
+            '.sim-bar-title { font-weight: 700; font-size: 14px; white-space: nowrap; }',
+            '.sim-bar-step { font-size: 13px; opacity: 0.9; white-space: nowrap; }',
+            '.sim-bar-progress { flex: 1; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; }',
+            '.sim-bar-fill { height: 100%; background: white; border-radius: 3px; transition: width 0.5s ease; }',
+            '.sim-bar-btns { display: flex; gap: 8px; }',
+            '.sim-bar-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 5px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; font-weight: 500; transition: background 0.15s; }',
+            '.sim-bar-btn:hover { background: rgba(255,255,255,0.3); }',
+            '.sim-narration { position: fixed; top: 52px; left: 0; right: 0; z-index: 1999; background: rgba(0,51,102,0.95); color: white; padding: 10px 20px; font-size: 14px; font-style: italic; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }',
+            '@media (max-width: 600px) { .sim-bar { padding: 8px 12px; gap: 8px; flex-wrap: wrap; } .sim-bar-title { font-size: 12px; } .sim-narration { font-size: 12px; top: 60px; } }',
+            '.ac-item:hover { background: #f0f4ff; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    })();
+
+    // -- Config --
+    const API_BASE = window.ENPRO_API_BASE || '';
+    const SESSION_KEY = 'enpro_fm_session';
+    const HISTORY_KEY = 'enpro_fm_history';
+
+    // -- Global 401 handler --
+    // Wrap window.fetch once. Any non-auth-probe response with status 401 means
+    // the user's session expired or never existed � kick them to /login.html
+    // instead of surfacing a misleading "search failed" toast. Whitelisted:
+    //   /api/auth/me    � the gate probe (would loop)
+    //   /api/auth/login � bad PIN responses must reach the login UI
+    // Single-flight guard via window.__fmRedirecting prevents a 401 storm
+    // from multiple in-flight requests calling location.replace() in parallel.
+    (function installAuthRedirect() {
+        if (window.__fmAuthRedirectInstalled) return;
+        window.__fmAuthRedirectInstalled = true;
+        var origFetch = window.fetch.bind(window);
+        var AUTH_WHITELIST = ['/api/auth/me', '/api/auth/login'];
+        window.fetch = function (input, init) {
+            return origFetch(input, init).then(function (resp) {
+                try {
+                    var url;
+                    if (typeof input === 'string') {
+                        url = input;
+                    } else if (input && input.url) {
+                        url = input.url;
+                    } else {
+                        url = String(input);
+                    }
+                    var whitelisted = AUTH_WHITELIST.some(function (p) {
+                        return url.indexOf(p) !== -1;
+                    });
+                    if (resp.status === 401 && !whitelisted && !window.__fmRedirecting) {
+                        window.__fmRedirecting = true;
+                        window.location.replace('/login.html');
+                    }
+                } catch (_) {}
+                return resp;
+            });
+        };
+    })();
+
+    // -- State --
+    // Bind session to the logged-in user when available so the 7-day memory
+    // layer stays consistent across tabs/refreshes for that user. Auth gate in
+    // index.html sets window.__FM_USER before app.js loads. Falls back to a
+    // random UUID for unauth/legacy mode (DB not configured).
+    //
+    // First-login migration (G10): if the user previously had quote state
+    // under a random pre-auth UUID in localStorage, fire-and-forget a POST
+    // to /api/session/migrate so the server-side quote cart re-keys onto
+    // the new u<id> session. Without this, an in-progress quote cart
+    // silently disappears the moment they sign in.
+    let sessionId;
+    if (window.__FM_USER && window.__FM_USER.id) {
+        sessionId = 'u' + window.__FM_USER.id;
+        var legacySessionId = localStorage.getItem(SESSION_KEY);
+        if (legacySessionId && legacySessionId !== sessionId) {
+            // Defer slightly so the auth cookie + page state are settled
+            setTimeout(function () {
+                fetch(API_BASE + '/api/session/migrate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        from_session_id: legacySessionId,
+                        to_session_id: sessionId
+                    })
+                }).catch(function () { /* best effort � soft fail */ });
+            }, 200);
+        }
+        // Pin localStorage to the user-bound id so future page loads skip
+        // the migrate dance entirely.
+        try { localStorage.setItem(SESSION_KEY, sessionId); } catch (_) {}
+    } else {
+        sessionId = localStorage.getItem(SESSION_KEY);
+        if (!sessionId) {
+            sessionId = crypto.randomUUID ? crypto.randomUUID() : uuidFallback();
+            localStorage.setItem(SESSION_KEY, sessionId);
+        }
+    }
+    let lastFollowUps = [];   // Track numbered options
+    let isLoading = false;
+    let searchCount = 0;      // Track searches for auto-reset
+
+    // -- Autocomplete suggestions --
+    var AUTOCOMPLETE_ITEMS = [
+        // Product Types
+        {text: 'search filter cartridge', label: 'Filter Cartridge', type: 'Product'},
+        {text: 'search filter element', label: 'Filter Element', type: 'Product'},
+        {text: 'search filter bag', label: 'Filter Bag', type: 'Product'},
+        {text: 'search filter housing', label: 'Filter Housing', type: 'Product'},
+        {text: 'search depth sheet', label: 'Depth Sheet', type: 'Product'},
+        {text: 'search membrane', label: 'Membrane', type: 'Product'},
+        {text: 'search o-ring seal', label: 'O-Ring / Seal', type: 'Product'},
+        // Specs
+        {text: 'search 1 micron filter', label: '1 Micron', type: 'Spec'},
+        {text: 'search 5 micron filter', label: '5 Micron', type: 'Spec'},
+        {text: 'search 10 micron filter', label: '10 Micron', type: 'Spec'},
+        {text: 'search 25 micron filter', label: '25 Micron', type: 'Spec'},
+        {text: 'search polypropylene', label: 'Polypropylene', type: 'Media'},
+        {text: 'search PTFE', label: 'PTFE', type: 'Media'},
+        {text: 'search glass fiber', label: 'Glass Fiber', type: 'Media'},
+        {text: 'search stainless steel', label: 'Stainless Steel', type: 'Media'},
+        // Chemicals
+        {text: 'chemical compatibility of sulfuric acid', label: 'Sulfuric Acid', type: 'Chemical'},
+        {text: 'chemical compatibility of acetone', label: 'Acetone', type: 'Chemical'},
+        {text: 'chemical compatibility of sodium hydroxide', label: 'Sodium Hydroxide', type: 'Chemical'},
+        {text: 'chemical compatibility of hydrochloric acid', label: 'Hydrochloric Acid', type: 'Chemical'},
+        // Manufacturers
+        {text: 'manufacturer Pall', label: 'Pall', type: 'Manufacturer'},
+        {text: 'manufacturer Flowserve', label: 'Flowserve', type: 'Manufacturer'},
+        {text: 'manufacturer Graver', label: 'Graver', type: 'Manufacturer'},
+        {text: 'manufacturer Filtrox', label: 'Filtrox', type: 'Manufacturer'},
+        {text: 'manufacturer PPC', label: 'PPC', type: 'Manufacturer'},
+        {text: 'manufacturer Lechler', label: 'Lechler', type: 'Manufacturer'},
+    ];
+
+    // -- DOM refs --
+    const chatArea = document.getElementById('chatArea');
+    const userInput = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const typingEl = document.getElementById('typingIndicator');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalLabel = document.getElementById('modalLabel');
+    const modalInput = document.getElementById('modalInput');
+    const modalHint = document.getElementById('modalHint');
+
+    let currentModalType = null;
+
+    // -- UUID fallback --
+    function uuidFallback() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
+    // -- Time formatting --
+    function timeStr() {
+        return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function normalizeVoiceQuery(text) {
+        if (!text) return '';
+
+        var normalized = String(text)
+            .replace(/\bpal\b/gi, 'Pall')
+            .replace(/\bpower\s+parts?\b/gi, 'PowerFlow')
+            .replace(/\bfiltrox\b/gi, 'Filtrox')
+            .replace(/\bgraver\b/gi, 'Graver')
+            .replace(/\bppc\b/gi, 'PPC')
+            .replace(/\bflow\s*serve\b/gi, 'Flowserve')
+            .replace(/[��]/g, '"')
+            .replace(/[\u2018\u2019]/g, "'");
+
+        normalized = normalized
+            .replace(/\b(yeah|ok|okay|you know|like|um|uh|sort of|kind of|whatever)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return normalized;
+    }
+
+    function detectManufacturerHint(text) {
+        if (!text) return '';
+        var haystack = String(text).toLowerCase();
+        var vendors = ['Pall', 'PowerFlow', 'Flowserve', 'Graver', 'Filtrox', 'PPC', 'Lechler'];
+        for (var i = 0; i < vendors.length; i += 1) {
+            if (haystack.indexOf(vendors[i].toLowerCase()) !== -1) {
+                return vendors[i];
+            }
+        }
+        return '';
+    }
+
+    function buildVoiceFallbackActions(transcript, data) {
+        var cleaned = normalizeVoiceQuery((data && (data.cleaned_transcript || data.transcript)) || transcript || '');
+        var actions = [];
+        var lower = cleaned.toLowerCase();
+        var manufacturer = detectManufacturerHint(cleaned);
+        var hasManufacturerIntent = /\b(manufacturer|brand)\b/i.test(lower);
+        var hasInventoryIntent = /\b(stock|inventory|available|availability|in stock|lead time|ship|shipping)\b/i.test(lower);
+        var hasTopSellingIntent = /\b(top selling|top-sell|best selling|most popular|top products)\b/i.test(lower);
+        var hasPartIntent = /\b(part number|part #|pn|part)\b/i.test(lower);
+
+        if (hasTopSellingIntent) {
+            actions.push({
+                label: 'Top selling filter elements',
+                query: 'search filter element'
+            });
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+        } else if (hasManufacturerIntent || manufacturer) {
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+        } else if (hasInventoryIntent) {
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+            actions.push({
+                label: 'Pick manufacturer',
+                modal: 'manufacturer'
+            });
+        } else if (hasPartIntent) {
+            actions.push({
+                label: 'Lookup part number',
+                modal: 'lookup'
+            });
+            actions.push({
+                label: 'Compare parts',
+                modal: 'compare'
+            });
+        }
+
+        if (cleaned) {
+            actions.push({
+                label: 'Search broader',
+                query: 'search ' + cleaned
+            });
+        }
+
+        if (manufacturer) {
+            actions.push({
+                label: 'Show ' + manufacturer,
+                query: 'manufacturer ' + manufacturer
+            });
+        }
+
+        if (/\b(chemical|compatibility|compatible)\b/i.test(lower)) {
+            actions.push({
+                label: 'Chemical compatibility',
+                query: 'check chemical compatibility for ' + cleaned
+            });
+        }
+
+        if (/\b(price|pricing|cost|quote)\b/i.test(lower)) {
+            actions.push({
+                label: 'Pricing',
+                query: 'what is the price of ' + cleaned
+            });
+        }
+
+        if (/\b(stock|inventory|available|availability|lead time|ship|shipping)\b/i.test(lower)) {
+            actions.push({
+                label: 'Availability',
+                query: 'is ' + cleaned + ' in stock'
+            });
+        }
+
+        if (/\b(compare|similar|alternate|alternates|alternatives|other manufacturers|other options)\b/i.test(lower)) {
+            actions.push({
+                label: 'Find alternates',
+                query: 'find alternates for ' + cleaned
+            });
+        }
+
+        if (!actions.length) {
+            actions.push({
+                label: 'What are you trying to look for?',
+                query: 'lookup'
+            });
+        }
+
+        // Keep the UI focused: only show the most useful next steps.
+        var deduped = [];
+        var seen = {};
+        actions.forEach(function (action) {
+            var key = (action.query || '').toLowerCase();
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            deduped.push(action);
+        });
+
+        return deduped.slice(0, 4);
+    }
+
+    function renderVoiceFallbackCard(transcript, data) {
+        var cleaned = normalizeVoiceQuery((data && data.cleaned_transcript) || transcript || '');
+        var actions = buildVoiceFallbackActions(transcript, data);
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">I did not find an exact match</div>';
+        html += '<div class="chemical-card-body">';
+        html += '<div style="margin-bottom:10px; color:var(--text); font-size:14px; line-height:1.5;">';
+        if (/\b(manufacturer|brand)\b/i.test(cleaned)) {
+            html += 'Which manufacturer are you looking for?';
+        } else if (/\b(top selling|top-sell|best selling|most popular|top products)\b/i.test(cleaned)) {
+            html += 'Do you want top-selling filter elements by manufacturer, or a specific part number?';
+        } else if (/\b(stock|inventory|available|availability|in stock|lead time|ship|shipping)\b/i.test(cleaned)) {
+            html += 'What did you want in inventory? Please repeat it more clearly.';
+        } else {
+            html += 'Let us narrow it down from the last query.';
+        }
+        if (cleaned) {
+            html += '<div style="margin-top:6px; color:var(--text-light); font-size:13px;">Cleaned query: ' + esc(cleaned) + '</div>';
+        }
+        html += '</div>';
+
+        html += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+        actions.forEach(function (action) {
+            if (action.modal) {
+                html += '<button class="followup-btn" onclick="showModal(\'' + esc(action.modal).replace(/'/g, "\\'") + '\')">' + esc(action.label) + '</button>';
+            } else {
+                html += '<button class="followup-btn" onclick="sendMessage(\'' + esc(action.query).replace(/'/g, "\\'") + '\')">' + esc(action.label) + '</button>';
+            }
+        });
+        html += '</div>';
+
+        if (data && data.suggestions && data.suggestions.length > 0) {
+            var strongHints = data.suggestions.filter(function (s) { return (s.confidence || 0) >= 0.90; });
+            if (strongHints.length > 0) {
+                html += '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">';
+                html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Normalization hints</div>';
+                strongHints.forEach(function (s) {
+                    html += '<div style="font-size:13px; margin-bottom:4px; color:var(--text);">';
+                    html += esc(String(s.field || 'field')) + ': "' + esc(String(s.original || '')) + '" ? <strong>' + esc(String(s.resolved || '')) + '</strong>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    function renderVoiceClarifyCard(question, detail) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">Need one quick check</div>';
+        html += '<div class="chemical-card-body">';
+        html += '<div style="margin-bottom:10px; color:var(--text); font-size:14px; line-height:1.5;">' + esc(question || 'What are you trying to look for?') + '</div>';
+        if (detail) {
+            html += '<div style="margin-bottom:10px; color:var(--text-light); font-size:13px;">' + esc(detail) + '</div>';
+        }
+        html += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+        html += '<button class="followup-btn" onclick="focusChatInput()">Type it again</button>';
+        html += '<button class="followup-btn" onclick="showModal(\'lookup\')">Lookup</button>';
+        html += '<button class="followup-btn" onclick="showModal(\'compare\')">Compare</button>';
+        html += '</div>';
+        html += '</div></div>';
+        return html;
+    }
+
+    // -- Auto-grow textarea --
+    window.autoGrow = function (el) {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+    };
+
+    window.focusChatInput = function () {
+        if (userInput) userInput.focus();
+    };
+
+    // -- Keyboard handling --
+    window.handleKeyDown = function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    };
+
+    // -- Autocomplete --
+    var acDropdown = null;
+
+    function showAutocomplete(query) {
+        if (!query || query.length < 2) { hideAutocomplete(); return; }
+        var q = query.toLowerCase();
+        var matches = AUTOCOMPLETE_ITEMS.filter(function(item) {
+            return item.label.toLowerCase().includes(q) || item.text.toLowerCase().includes(q);
+        }).slice(0, 6);
+
+        if (matches.length === 0) { hideAutocomplete(); return; }
+
+        if (!acDropdown) {
+            acDropdown = document.createElement('div');
+            acDropdown.id = 'acDropdown';
+            acDropdown.style.cssText = 'position:absolute; bottom:100%; left:0; right:0; background:white; border:1px solid var(--border); border-radius:8px 8px 0 0; box-shadow:0 -4px 12px rgba(0,0,0,0.1); max-height:240px; overflow-y:auto; z-index:500; display:none;';
+            userInput.parentElement.style.position = 'relative';
+            userInput.parentElement.appendChild(acDropdown);
+        }
+
+        var html = '';
+        matches.forEach(function(item, idx) {
+            html += '<div class="ac-item" data-idx="' + idx + '" style="padding:10px 14px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f0f0f0; font-size:13px;" onmousedown="selectAutocomplete(' + idx + ')">';
+            html += '<span style="font-weight:500;">' + item.label + '</span>';
+            html += '<span style="font-size:11px; color:var(--text-light); background:var(--bg); padding:2px 8px; border-radius:10px;">' + item.type + '</span>';
+            html += '</div>';
+        });
+        acDropdown.innerHTML = html;
+        acDropdown.style.display = 'block';
+        acDropdown._matches = matches;
+    }
+
+    function hideAutocomplete() {
+        if (acDropdown) acDropdown.style.display = 'none';
+    }
+
+    window.selectAutocomplete = function(idx) {
+        if (!acDropdown || !acDropdown._matches) return;
+        var item = acDropdown._matches[idx];
+        if (item) {
+            userInput.value = '';
+            hideAutocomplete();
+            sendMessage(item.text);
+        }
+    };
+
+    // Wire autocomplete to input
+    userInput.addEventListener('input', function() {
+        showAutocomplete(userInput.value.trim());
+    });
+    userInput.addEventListener('blur', function() {
+        setTimeout(hideAutocomplete, 200);
+    });
+
+    // -- Send handler --
+    window.handleSend = function () {
+        const text = userInput.value.trim();
+        if (!text || isLoading) return;
+
+        // Check for numbered option shortcut
+        const num = parseInt(text);
+        if (num >= 1 && num <= lastFollowUps.length && text === String(num)) {
+            const resolved = lastFollowUps[num - 1];
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            sendMessage(resolved);
+            return;
+        }
+
+        userInput.value = '';
+        userInput.style.height = 'auto';
+        sendMessage(text);
+    };
+
+    // -- Core: sendMessage --
+    // -- SSE streaming chat consumer (V2.11) --
+    // POSTs to /api/chat/stream and progressively renders the response as
+    // it arrives. Each event from the server triggers an inline render so
+    // the headline appears instantly, picks build one at a time, and the
+    // follow-up question lands last. The user sees the answer being
+    // assembled in real time instead of waiting for a single payload.
+    //
+    // Returns {ok: true, summary: {intent, cost}} on success, or null/
+    // {ok: false} on failure (caller falls back to the legacy fetch path).
+    async function sendMessageStreaming(text) {
+        if (typeof TextDecoder === 'undefined' || !window.fetch) return null;
+
+        var resp;
+        try {
+            resp = await fetch(API_BASE + '/api/chat/stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
+                },
+                body: JSON.stringify({ message: text, session_id: sessionId }),
+            });
+        } catch (e) {
+            return null;
+        }
+        if (!resp.ok || !resp.body) {
+            return { ok: false };
+        }
+
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder('utf-8');
+        var buffer = '';
+        var summary = {};
+
+        function processEvent(rawBlock) {
+            // SSE event format: "event: NAME\ndata: JSON\n\n"
+            var lines = rawBlock.split('\n');
+            var eventName = 'message';
+            var dataStr = '';
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                if (line.indexOf('event:') === 0) {
+                    eventName = line.slice(6).trim();
+                } else if (line.indexOf('data:') === 0) {
+                    dataStr += line.slice(5).trim();
+                }
+            }
+            if (!dataStr) return;
+            var data;
+            try { data = JSON.parse(dataStr); } catch (_) { return; }
+            handleStreamEvent(eventName, data, summary);
+        }
+
+        // Read the stream until done
+        try {
+            while (true) {
+                var chunk = await reader.read();
+                if (chunk.done) break;
+                buffer += decoder.decode(chunk.value, { stream: true });
+                // SSE delimiter is double newline
+                var blocks = buffer.split('\n\n');
+                buffer = blocks.pop(); // last partial block stays in buffer
+                for (var i = 0; i < blocks.length; i++) {
+                    processEvent(blocks[i]);
+                }
+            }
+            // Flush any final block
+            if (buffer.trim()) processEvent(buffer);
+        } catch (e) {
+            console.error('Stream read error:', e);
+            return { ok: false };
+        }
+
+        return { ok: true, summary: summary };
+    }
+
+    // Render a single SSE event into the chat. Each event type maps to a
+    // visual chunk. The shared `summary` object accumulates terminal info
+    // (intent, cost, quote_state) for the trackQuery call after stream end.
+    function handleStreamEvent(eventName, data, summary) {
+        switch (eventName) {
+            case 'ready':
+                // V2.13: paint a skeleton so the user sees IMMEDIATE feedback
+                // before the first real token arrives. The skeleton is replaced
+                // when the headline event lands. Stops the "spinner-then-explosion"
+                // anti-pattern where the page sits blank then dumps everything at once.
+                appendMessage('bot',
+                    '<div class="fm-skeleton" style="display:flex;flex-direction:column;gap:8px;">' +
+                    '<div style="height:18px;width:75%;background:linear-gradient(90deg,#e8ecf2 25%,#f5f7fa 50%,#e8ecf2 75%);background-size:200% 100%;border-radius:4px;animation:fm-shimmer 1.4s infinite;"></div>' +
+                    '<div style="height:14px;width:90%;background:linear-gradient(90deg,#e8ecf2 25%,#f5f7fa 50%,#e8ecf2 75%);background-size:200% 100%;border-radius:4px;animation:fm-shimmer 1.4s infinite;"></div>' +
+                    '<div style="height:14px;width:60%;background:linear-gradient(90deg,#e8ecf2 25%,#f5f7fa 50%,#e8ecf2 75%);background-size:200% 100%;border-radius:4px;animation:fm-shimmer 1.4s infinite;"></div>' +
+                    '</div>' +
+                    '<style>@keyframes fm-shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}</style>'
+                );
+                window.__fmSkeletonShown = true;
+                scrollToBottom();
+                break;
+
+            case 'headline':
+                // Remove the skeleton (if any) the moment real content lands
+                if (window.__fmSkeletonShown) {
+                    var skel = chatArea.querySelector('.fm-skeleton');
+                    if (skel) {
+                        var msgWrapper = skel.closest('.message') || skel.parentElement;
+                        if (msgWrapper) msgWrapper.remove();
+                    }
+                    window.__fmSkeletonShown = false;
+                }
+                if (data.text) {
+                    appendMessage('bot',
+                        '<div style="font-size:16px;font-weight:600;color:#0a1628;line-height:1.4;">' +
+                        esc(data.text) + '</div>'
+                    );
+                    scrollToBottom();
+                }
+                break;
+
+            case 'body':
+                if (data.text) {
+                    appendMessage('bot',
+                        '<div style="font-size:14px;color:#444;line-height:1.5;">' +
+                        formatMarkdown(data.text) + '</div>'
+                    );
+                    scrollToBottom();
+                }
+                break;
+
+            case 'pick':
+                var pn = (data.part_number || '').toString().toUpperCase();
+                var reason = data.reason || '';
+                var product = data.product;
+                if (pn) {
+                    appendMessage('bot',
+                        '<div class="fm-rec-reason" style="' +
+                        'background:#eef4ff;border-left:3px solid #0066CC;' +
+                        'padding:10px 14px;margin:6px 0 0 0;border-radius:6px 6px 0 0;' +
+                        'font-size:14px;line-height:1.5;color:#0a1628;">' +
+                        '<strong>' + esc(pn) + '</strong> � ' + esc(reason) +
+                        '</div>'
+                    );
+                }
+                if (product) {
+                    appendCard(renderProductCard(product));
+                }
+                scrollToBottom();
+                break;
+
+            case 'other':
+                if (data.products && data.products.length > 0) {
+                    appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
+                    data.products.forEach(function (p) {
+                        appendCard(renderProductCard(p));
+                    });
+                    scrollToBottom();
+                }
+                break;
+
+            case 'follow_up':
+                if (data.text) {
+                    appendMessage('bot',
+                        '<div style="font-style:italic;color:#444;font-size:14px;margin-top:8px;">' +
+                        esc(data.text) + '</div>'
+                    );
+                    scrollToBottom();
+                }
+                break;
+
+            case 'done':
+                summary.intent = data.intent;
+                summary.cost = data.cost;
+                if (data.quote_state) {
+                    syncQuoteState(data.quote_state);
+                }
+                searchCount++;
+                checkAutoReset();
+                break;
+
+            case 'error':
+                var msg = data.error || 'Connection error.';
+                if (data.status === 401) {
+                    // Auth gate � redirect to login
+                    window.location.replace('/login.html');
+                    return;
+                }
+                appendMessage('bot', esc(msg));
+                break;
+
+            default:
+                // Unknown event � ignore
+                break;
+        }
+    }
+
+    window.sendMessage = async function (text) {
+        if (isLoading) return;
+
+        // Number shortcut: typing "1"-"4" clicks the corresponding action card
+        var trimmed = text.trim();
+        if (/^[1-4]$/.test(trimmed)) {
+            var actionCard = document.querySelector('.action-card[data-action-num="' + trimmed + '"]:not(.action-done)');
+            if (actionCard) {
+                actionCard.click();
+                return;
+            }
+        }
+
+        clearWelcome();
+        appendMessage('user', text);
+        parseAndUpdateContext(text);
+        setLoading(true);
+        var queryStart = Date.now();
+
+        try {
+            // V2.11: stream the response via SSE so headline + picks build
+            // progressively in the UI. Falls back to non-stream JSON path on
+            // any failure (network error, server returns non-200, etc).
+            var streamed = await sendMessageStreaming(text);
+            if (streamed && streamed.ok) {
+                trackQuery(queryStart, streamed.summary || {});
+                trackSearch(text, (streamed.summary && streamed.summary.intent) || '');
+            } else {
+                // Fallback: legacy single JSON response
+                const res = await fetch(API_BASE + '/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, session_id: sessionId })
+                });
+                const data = await res.json();
+                handleResponse(data);
+                trackQuery(queryStart, data);
+                trackSearch(text, data.intent);
+            }
+        } catch (err) {
+            appendMessage('bot', 'Connection error. Please check your network and try again.');
+            console.error('Chat error:', err);
+            trackError();
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // -- Direct lookup --
+    window.doLookup = async function (partNumber, mode) {
+        if (isLoading) return;
+        mode = mode || 'exact';
+
+        var modeLabel = mode === 'starts_with' ? 'Starts with' : mode === 'contains' ? 'Contains' : 'Lookup';
+        clearWelcome();
+        appendMessage('user', modeLabel + ': ' + partNumber);
+        setLoading(true);
+
+        try {
+            if (mode === 'exact') {
+                // Direct exact lookup
+                var res = await fetch(API_BASE + '/api/lookup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_number: partNumber, session_id: sessionId })
+                });
+                var data = await res.json();
+                handleResponse(data);
+            } else {
+                // Starts-with or contains � use suggest to get matches, then show as search results
+                var stockVal = document.getElementById('stockFilter') ? document.getElementById('stockFilter').value : 'all';
+                var res = await fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(partNumber) + '&mode=' + mode + '&in_stock=' + stockVal);
+                var data = await res.json();
+                var suggestions = data.suggestions || [];
+                if (suggestions.length === 0) {
+                    appendCard(renderVoiceFallbackCard(partNumber, { transcript: partNumber, query: partNumber }));
+                } else {
+                    appendMessage('bot', formatMarkdown('Found **' + suggestions.length + '** matches ' + (mode === 'starts_with' ? 'starting with' : 'containing') + ' "' + partNumber + '" [V25 FILTERS]:'));
+                    // Stagger card loading so results cascade in smoothly
+                    await loadProductsStaggered(suggestions);
+                }
+            }
+        } catch (err) {
+            appendMessage('bot', 'Lookup failed. Please try again.');
+            console.error('Lookup error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Show suggestions as a consolidated list card � click any row to expand
+    async function loadProductsStaggered(suggestions) {
+        if (suggestions.length === 1) {
+            // Single result � fetch full product card
+            try {
+                var res = await fetch(API_BASE + '/api/lookup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_number: suggestions[0].Part_Number, session_id: sessionId })
+                });
+                var data = await res.json();
+                if (data.found && data.product) {
+                    appendCard(renderProductCard(data.product), false);
+                    appendFollowUps(data.product.Part_Number || '');
+                }
+            } catch (err) {
+                console.error('Product fetch error:', err);
+            }
+        } else {
+            // Multiple � show consolidated card, click to expand
+            appendCard(renderConsolidatedCard(
+                suggestions.map(function (s) {
+                    return {
+                        Part_Number: s.Part_Number,
+                        Description: s.Description || '',
+                        Final_Manufacturer: s.Manufacturer || ''
+                    };
+                })
+            ), true);
+        }
+    }
+
+    // -- Search --
+    window.doSearch = async function (query) {
+        if (isLoading) return;
+
+        clearWelcome();
+        appendMessage('user', 'Search: ' + query);
+        setLoading(true);
+
+        try {
+            const res = await fetch(API_BASE + '/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query, session_id: sessionId })
+            });
+            const data = await res.json();
+            handleResponse(data);
+        } catch (err) {
+            appendMessage('bot', 'Search failed. Please try again.');
+            console.error('Search error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // -- Chemical check --
+    window.doChemical = async function (chemical) {
+        if (isLoading) return;
+
+        clearWelcome();
+        appendMessage('user', 'Chemical compatibility: ' + chemical);
+        setLoading(true);
+
+        try {
+            const res = await fetch(API_BASE + '/api/chemical', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chemical: chemical, session_id: sessionId })
+            });
+            const data = await res.json();
+            handleResponse(data);
+        } catch (err) {
+            appendMessage('bot', 'Chemical check failed. Please try again.');
+            console.error('Chemical error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // -- Response handler --
+    async function handleResponse(data) {
+        if (!data) {
+            appendMessage('bot', 'No response received.');
+            return;
+        }
+
+        if (data.quote_state) {
+            syncQuoteState(data.quote_state);
+        }
+
+        // Track compare intent for context card
+        if (data.intent === 'compare' || (data.table && data.table.title && data.table.title.toLowerCase().includes('compare'))) {
+            sessionContext.compared = true;
+            renderContextCard();
+        }
+
+        // -- V2.10 Structured response rendering --
+        // When the backend returns the new structured shape (headline + picks
+        // + follow_up + body) from _handle_gpt's JSON parser, render it as a
+        // scannable card layout: bold headline first, then ranked picks each
+        // with a soft-blue reason callout above the product card, then the
+        // optional body context, then the follow-up question. This is the
+        // chat-side equivalent of the Phase 2c voice rendering.
+        if (data.structured && data.headline) {
+            renderStructuredChatResponse(data);
+            scrollToBottom();
+            searchCount++;
+            checkAutoReset();
+            return;
+        }
+
+        // Chemical intent � parse GPT text into structured card
+        if (data.intent === 'chemical' && data.response && !data.chemical) {
+            var parsed = parseChemicalResponse(data.response);
+            if (parsed) {
+                appendCard(renderChemicalCard(parsed));
+                // Show any extra text below the card (recommendations, notes)
+                if (parsed.extras) {
+                    appendMessage('bot', formatMarkdown(parsed.extras));
+                }
+                if (data.products && data.products.length > 0) {
+                    await renderProductsBatched(data.products);
+                }
+                scrollToBottom();
+                searchCount++;
+                checkAutoReset();
+                return;
+            }
+        }
+
+        // Application intent � render as plain guidance and any returned products
+        if (data.intent === 'application' && data.response) {
+            appendMessage('bot', formatMarkdown(data.response));
+            if (data.products && data.products.length > 0) {
+                await renderProductsBatched(data.products);
+            }
+            scrollToBottom();
+            searchCount++;
+            checkAutoReset();
+            return;
+        }
+
+        // Only capture specs into context from SINGLE product lookups, not multi-result searches
+        if (data.products && data.products.length === 1) {
+            updateContextFromProducts(data.products);
+        }
+
+        // Handle different response shapes
+        if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+            // Only show cards � no redundant text dump above them
+            await renderProductsBatched(data.products);
+        } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+            if (data.total_found !== undefined) {
+                var headerMsg = 'Found **' + data.total_found + '** products';
+                if (data.total_found > data.results.length) headerMsg += ' (showing top ' + data.results.length + ')';
+                appendMessage('bot', formatMarkdown(headerMsg));
+            }
+            await renderProductsBatched(data.results);
+            if (data.has_more && data.query) {
+                var showMoreBtn = document.createElement('button');
+                showMoreBtn.className = 'show-more-btn';
+                showMoreBtn.style.cssText = 'display:block;margin:8px auto;padding:8px 24px;background:#1a73e8;color:#fff;border:none;border-radius:20px;cursor:pointer;font-size:14px;';
+                showMoreBtn.textContent = 'Show 5 more results';
+                showMoreBtn.onclick = async function() {
+                    showMoreBtn.disabled = true;
+                    showMoreBtn.textContent = 'Loading...';
+                    try {
+                        var moreResp = await fetch(API_BASE + '/api/search', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({query: data.query, max_results: 10, in_stock_only: false})
+                        });
+                        var moreData = await moreResp.json();
+                        if (moreData.results && moreData.results.length > 0) {
+                            var extra = moreData.results.slice(data.results.length);
+                            if (extra.length > 0) {
+                                await renderProductsBatched(extra);
+                            } else {
+                                appendMessage('bot', 'No additional results.');
+                            }
+                        }
+                    } catch(e) { appendMessage('bot', 'Failed to load more results.'); }
+                    showMoreBtn.remove();
+                    scrollToBottom();
+                };
+                chatArea.appendChild(showMoreBtn);
+            }
+        } else if (data.chemical) {
+            appendCard(renderChemicalCard(data.chemical));
+        } else if (data.table) {
+            appendCard(renderTableCard(data.table));
+        } else if (data.product) {
+            appendCard(renderProductCard(data.product));
+            appendFollowUps(data.product.part_number || data.product.Part_Number || '');
+        } else if (data.options && Array.isArray(data.options)) {
+            if (data.text) appendMessage('bot', formatMarkdown(data.text));
+            appendNumberedOptions(data.options);
+        } else if (data.text || data.message || data.response) {
+            const txt = data.text || data.message || data.response;
+            appendMessage('bot', formatMarkdown(txt));
+
+            // Check for embedded options
+            if (data.follow_ups) {
+                appendFollowUps('', data.follow_ups);
+            }
+        } else if (data.total_found !== undefined && data.query !== undefined) {
+            // Search results with 0 matches
+            appendCard(renderVoiceFallbackCard(data.query || '', data));
+        } else if (typeof data === 'string') {
+            appendMessage('bot', formatMarkdown(data));
+        } else {
+            appendMessage('bot', formatMarkdown(JSON.stringify(data, null, 2)));
+        }
+
+        scrollToBottom();
+        searchCount++;
+        checkAutoReset();
+    }
+
+    // -- New Chat / Auto-reset after 50 searches (soft warning at 40) --
+    function checkAutoReset() {
+        if (searchCount === 40) {
+            appendMessage('bot', formatMarkdown(
+                'You\'ve run **40 searches** in this session. Consider starting a **New Chat** for best performance.'
+            ));
+        } else if (searchCount >= 50) {
+            appendMessage('bot', formatMarkdown(
+                '**Session limit reached (50 searches).** Starting a fresh chat to keep things fast.'
+            ));
+            setTimeout(function () { newChat(); }, 3000);
+        }
+    }
+
+    window.newChat = function () {
+        // Clear chat area
+        chatArea.innerHTML = '';
+        // Restore welcome
+        chatArea.innerHTML = '<div class="welcome">' +
+            '<div class="welcome-icon" style="font-size:48px;">&#128270;</div>' +
+            '<h2>Filtration Mastermind</h2>' +
+            '<p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, compare products, check chemical compatibility, or ask for pricing � type it like you\'d say it.</p>' +
+            '<p style="margin-top:8px; font-size:13px; color:var(--text-light);">19,470 validated products. Real-time inventory. Real prices.</p>' +
+            '</div>';
+        // Reset state
+        searchCount = 0;
+        lastFollowUps = [];
+        // Clear context lane
+        if (typeof window.clearContext === 'function') window.clearContext();
+        // New session ID
+        sessionId = crypto.randomUUID ? crypto.randomUUID() : uuidFallback();
+        localStorage.setItem(SESSION_KEY, sessionId);
+        scrollToBottom();
+    };
+
+    // -- Render products: 1 card if single, consolidated card if multiple --
+    async function renderProductsBatched(products) {
+        if (products.length === 1) {
+            // Single result � full product card
+            appendCard(renderProductCard(products[0]), false);
+            appendFollowUps(products[0].Part_Number || products[0].part_number || '');
+        } else if (products.length > 1) {
+            // Multiple results � consolidated card with expandable rows
+            appendCard(renderConsolidatedCard(products), true);
+        }
+    }
+
+    // Consolidated card � one card, multiple products as rows
+    window.renderConsolidatedCard = function (products) {
+        var SHOW_LIMIT = 5;
+        var cardId = 'consol_' + Date.now();
+        var html = '<div class="product-card">';
+        html += '<div class="product-card-header">' + products.length + ' Results Found</div>';
+        html += '<div class="product-card-body" style="padding:0;">';
+
+        products.forEach(function (p, idx) {
+            var pn = p.Part_Number || p.part_number || '?';
+            var desc = p.Description || p.description || '';
+            var mfr = p.Final_Manufacturer || p.Manufacturer_Display || p.Manufacturer || p.manufacturer || '';
+            var price = p.Price || p.price || '';
+            var stock = p.Total_Stock || p.total_stock || 0;
+            var priceDisplay = (price && price !== 'Contact Enpro for pricing') ? price : '';
+            var stockDisplay = stock > 0 ? '<span style="color:var(--stock-green);font-weight:700;">' + stock + '</span>' : '<span style="color:var(--stock-red);">0</span>';
+            var hiddenStyle = idx >= SHOW_LIMIT ? ' style="display:none;" data-extra="' + cardId + '"' : '';
+
+            html += '<div class="consol-row" onclick="expandConsolRow(\'' + esc(pn) + '\', this)"' + hiddenStyle + '>';
+            html += '<div class="consol-row-main">';
+            html += '<div class="consol-pn"><a class="card-link" onclick="event.stopPropagation(); sendMessage(\'lookup ' + esc(pn).replace(/'/g, "\\'") + '\')">' + esc(pn) + '</a></div>';
+            html += '<div class="consol-desc">' + esc(desc) + '</div>';
+            html += '</div>';
+            html += '<div class="consol-row-meta">';
+            if (mfr) html += '<span class="consol-mfr">' + esc(mfr) + '</span>';
+            if (priceDisplay) html += '<span class="consol-price">' + priceDisplay + '</span>';
+            html += stockDisplay;
+            html += '</div>';
+            html += '</div>';
+        });
+
+        if (products.length > SHOW_LIMIT) {
+            html += '<div class="show-more-btn" id="showMore_' + cardId + '" onclick="showMoreResults(\'' + cardId + '\', this)" style="text-align:center; padding:10px; cursor:pointer; color:var(--accent); font-weight:600; font-size:13px; border-top:1px solid var(--border);">';
+            html += 'Show ' + (products.length - SHOW_LIMIT) + ' more results';
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
+
+    window.showMoreResults = function (cardId, btn) {
+        var extras = document.querySelectorAll('[data-extra="' + cardId + '"]');
+        extras.forEach(function (el) { el.style.display = ''; });
+        if (btn) btn.remove();
+    };
+
+    // Expand a consolidated row into a full card
+    window.expandConsolRow = function (partNumber, rowEl) {
+        rowEl.style.pointerEvents = 'none';
+        rowEl.style.opacity = '0.5';
+        sendMessage('lookup ' + partNumber);
+    };
+
+    // -- Render product card --
+    // -- Structured chat response renderer (V2.10) --
+    // Renders the new {headline, picks, follow_up, body} shape from
+    // /api/chat into a scannable card layout. Mirrors renderVoiceResponse
+    // but sourced from data.products (chat returns full product records)
+    // instead of data.results + data.candidates (voice).
+    window.renderStructuredChatResponse = function (data) {
+        var headline = data.headline || '';
+        var picks = data.picks || [];
+        var followUp = data.follow_up || '';
+        var body = data.body || '';
+        var products = data.products || [];
+
+        // Match a pick.part_number against the products payload
+        function findProductByPN(pn) {
+            if (!pn) return null;
+            var target = String(pn).trim().toUpperCase();
+            for (var i = 0; i < products.length; i++) {
+                var p = products[i] || {};
+                var candidate = (p.Part_Number || p.part_number || p.Alt_Code || p.alt_code || '').toString().trim().toUpperCase();
+                if (candidate === target) return p;
+            }
+            return null;
+        }
+
+        // 1. Bold headline as the first message
+        if (headline) {
+            appendMessage('bot',
+                '<div style="font-size:16px;font-weight:600;color:#0a1628;line-height:1.4;">' +
+                esc(headline) + '</div>'
+            );
+        }
+
+        // 2. Optional body context (1-2 sentences) below headline
+        if (body) {
+            appendMessage('bot',
+                '<div style="font-size:14px;color:#444;line-height:1.5;margin-top:-2px;">' +
+                formatMarkdown(body) + '</div>'
+            );
+        }
+
+        // 3. Each pick: reason callout + product card
+        var rendered = {};
+        picks.forEach(function (pick) {
+            var pn = (pick.part_number || '').toString().trim().toUpperCase();
+            if (!pn) return;
+            var product = findProductByPN(pn);
+
+            var reasonHtml =
+                '<div class="fm-rec-reason" style="' +
+                'background:#eef4ff;border-left:3px solid #0066CC;' +
+                'padding:10px 14px;margin:6px 0 0 0;border-radius:6px 6px 0 0;' +
+                'font-size:14px;line-height:1.5;color:#0a1628;">' +
+                '<strong>' + esc(pn) + '</strong> � ' +
+                esc(pick.reason || '') +
+                '</div>';
+            appendMessage('bot', reasonHtml);
+
+            if (product) {
+                appendCard(renderProductCard(product));
+                rendered[pn] = true;
+            }
+        });
+
+        // 4. Show any catalog products NOT covered by picks below as
+        //    "Other options" � gives the rep more to scan if they want it.
+        var leftover = products.filter(function (p) {
+            var pn = (p.Part_Number || p.part_number || p.Alt_Code || '').toString().trim().toUpperCase();
+            return pn && !rendered[pn];
+        });
+        if (leftover.length > 0 && picks.length > 0) {
+            appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
+            leftover.slice(0, 3).forEach(function (product) {
+                appendCard(renderProductCard(product));
+            });
+        }
+
+        // 5. Follow-up question � italicized, conversational
+        if (followUp) {
+            appendMessage('bot',
+                '<div style="font-style:italic;color:#444;font-size:14px;margin-top:8px;">' +
+                esc(followUp) + '</div>'
+            );
+        }
+    };
+
+    // -- Conversational voice-search response renderer (Phase 2c) --
+    // Replaces the old "X products found" data-dump header with a ranked,
+    // reasoned list. Reads data.recommendations (Phase 2 GPT re-rank) and
+    // matches each part_number against data.results / data.candidates to
+    // find the full product record. Falls through to the legacy card list
+    // for any results that aren't in the recommendations payload.
+    window.renderVoiceResponse = function (data) {
+        var recs = (data && data.recommendations) || [];
+        var results = (data && data.results) || [];
+        var candidates = (data && data.candidates) || [];
+        var pool = results.concat(candidates); // matched-by-PN lookup pool
+
+        function findProductByPN(pn) {
+            if (!pn) return null;
+            var target = String(pn).trim().toUpperCase();
+            for (var i = 0; i < pool.length; i++) {
+                var p = pool[i] || {};
+                var candidate = (p.Part_Number || p.part_number || p.Alt_Code || p.alt_code || '').toString().trim().toUpperCase();
+                if (candidate === target) return p;
+            }
+            return null;
+        }
+
+        var rendered = {};
+
+        if (recs.length > 0) {
+            // Lead with conversational header
+            var lead = recs.length === 1 ? "Here's the strongest fit:" : "Here are the strongest fits:";
+            appendMessage('bot', lead);
+
+            // Render each recommendation as: reason callout + product card
+            recs.forEach(function (rec) {
+                var pn = (rec.part_number || '').toString().trim().toUpperCase();
+                if (!pn) return;
+                var product = findProductByPN(pn);
+                if (!product) return; // skip orphan recs
+
+                // Reason callout � soft-blue panel above the card
+                var reasonHtml =
+                    '<div class="fm-rec-reason" style="' +
+                    'background:#eef4ff;border-left:3px solid #0066CC;' +
+                    'padding:10px 14px;margin:6px 0 0 0;border-radius:6px 6px 0 0;' +
+                    'font-size:14px;line-height:1.5;color:#0a1628;">' +
+                    esc(rec.reason || '') +
+                    '</div>';
+                appendMessage('bot', reasonHtml);
+
+                // Then the full product card
+                appendCard(renderProductCard(product));
+                rendered[pn] = true;
+            });
+        }
+
+        // Show remaining results below as "more options" if there are any
+        // not already covered by recommendations.
+        var leftover = results.filter(function (p) {
+            var pn = (p.Part_Number || p.part_number || p.Alt_Code || '').toString().trim().toUpperCase();
+            return pn && !rendered[pn];
+        });
+
+        if (leftover.length > 0) {
+            if (recs.length > 0) {
+                appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
+            }
+            leftover.forEach(function (product) {
+                appendCard(renderProductCard(product));
+            });
+        }
+
+        // Edge case: no recs AND no leftover (shouldn't happen since caller
+        // guards on data.results.length > 0, but be defensive).
+        if (recs.length === 0 && leftover.length === 0) {
+            appendCard(renderVoiceFallbackCard(data.transcript || '', data));
+        }
+    };
+
+    window.renderProductCard = function (p) {
+        // Track this product in history for compare dropdowns
+        var pn = p.Part_Number || p.part_number || 'Product';
+        var desc = p.Description || p.description || '';
+        if (pn && pn !== 'Product') {
+            // Check if already in history
+            var exists = productsHistory.some(function(prod) { return prod.part === pn; });
+            if (!exists) {
+                productsHistory.push({ part: pn, description: desc });
+                // Keep only last 20 products
+                if (productsHistory.length > 20) productsHistory.shift();
+            }
+        }
+        
+        // Handle both camelCase and PascalCase/snake_case column names
+        var desc = p.Description || p.description || '';
+        var ext = p.Extended_Description || p.extended_description || '';
+        var ptype = p.Product_Type || p.product_type || '';
+        var industry = p.Industry || p.industry || p.Application || p.application || '';
+        var mfg = p.Final_Manufacturer || p.Manufacturer || p.manufacturer || '';
+        var micron = p.Micron || p.micron || '';
+        var media = p.Media || p.media || '';
+        var tempF = p.Max_Temp_F || p.temp_rating || '';
+        var psi = p.Max_PSI || p.psi_rating || '';
+        var flow = p.Flow_Rate || p.flow_rate || '';
+        var eff = p.Efficiency || p.efficiency || '';
+        var price = p.Price || p.price || p.Last_Sell_Price || '';
+        var stock = p.Stock || p.stock || {};
+        var totalStock = p.Total_Stock || p.total_stock || 0;
+
+        var html = '<div class="product-card">';
+        html += '<div class="product-card-header">Part Number: ' + esc(String(pn)) + '</div>';
+        html += '<div class="product-card-body">';
+
+        // Extended Description is primary (John's preference from Feb 25 meeting)
+        // Regular Description is fallback
+        var primaryDesc = ext || desc;
+        var fields = [
+            ['Description', primaryDesc],
+            ['Product Type', ptype],
+            ['Industry', industry],
+            ['Manufacturer', mfg]
+        ];
+
+        // Specs with explicit labels (no more mystery values)
+        if (micron && micron !== '0' && micron !== '0.0') {
+            fields.push(['Micron', '<a class="card-link" onclick="sendMessage(\'search ' + esc(String(micron)) + ' micron filters\')">' + esc(String(micron)) + '</a>']);
+        }
+        if (media) fields.push(['Media', esc(String(media))]);
+        if (tempF && tempF !== '0' && tempF !== '0.0') fields.push(['Max Temp', esc(String(tempF)) + '�F']);
+        if (psi && psi !== '0' && psi !== '0.0') fields.push(['Max PSI', esc(String(psi)) + ' PSI']);
+        if (flow) fields.push(['Flow Rate', esc(String(flow))]);
+        if (eff) fields.push(['Efficiency', eff]);
+
+        fields.forEach(function (f) {
+            if (f[1]) {
+                html += '<div class="product-field">';
+                html += '<div class="product-field-label">' + esc(f[0]) + '</div>';
+                var val = String(f[1]);
+                if (f[0] === 'Manufacturer') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'manufacturer ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Product Type') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'search ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Industry') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'industry ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (['Micron', 'Media', 'Max Temp', 'Max PSI', 'Flow Rate', 'Efficiency', 'Last Activity'].includes(f[0])) {
+                    // Spec fields already have formatting
+                    html += '<div class="product-field-value">' + val + '</div>';
+                } else {
+                    html += '<div class="product-field-value">' + esc(val) + '</div>';
+                }
+                html += '</div>';
+            }
+        });
+
+        // Last Activity
+        var lastActivity = p.Last_Sold_Date || p.last_sold_date || '';
+        if (lastActivity && lastActivity !== '0' && lastActivity.toLowerCase() !== 'nan') {
+            // Format: if it's a timestamp like "2021-07-23 09:32:12.700", show just the date
+            var displayActivity = String(lastActivity);
+            if (/^\d{4}-\d{2}-\d{2}/.test(displayActivity)) {
+                displayActivity = displayActivity.substring(0, 10);
+            }
+            var actColor = '#6b7280';
+            if (displayActivity === 'ACTIVE') actColor = '#059669';
+            else if (/DORMANT_1-2YR/.test(displayActivity)) actColor = '#d97706';
+            else if (/DORMANT_(3|5|10)/.test(displayActivity)) actColor = '#dc2626';
+            fields.push(['Last Activity', '<span style="color:' + actColor + '; font-weight:500;">' + esc(displayActivity) + '</span>']);
+        }
+
+        // Stock
+        var inventoryEntries = [];
+        if (stock && typeof stock === 'object' && Object.keys(stock).length > 0) {
+            Object.keys(stock).forEach(function (loc) {
+                if (loc === 'status') return;
+                var qty = parseInt(stock[loc]) || 0;
+                inventoryEntries.push({ location: loc, qty: qty });
+            });
+        }
+        if (inventoryEntries.length > 0) {
+            html += '<div class="stock-section">';
+            html += '<div class="stock-title">Inventory by Location</div>';
+            inventoryEntries.forEach(function (entry) {
+                var badge = entry.qty >= 10 ? 'green' : entry.qty >= 3 ? 'orange' : 'red';
+                html += '<div class="stock-row" style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:6px 0;">';
+                html += '<span style="color:#374151;">' + esc(entry.location) + '</span>';
+                html += '<span class="stock-qty ' + badge + '" style="white-space:nowrap;">' + entry.qty + ' units</span>';
+                html += '</div>';
+            });
+            html += '</div>';
+        } else if (totalStock > 0) {
+            html += '<div class="stock-section">';
+            html += '<div class="stock-title">Inventory</div>';
+            html += '<div class="stock-row"><span class="stock-qty green">' + totalStock + ' total units</span></div>';
+            html += '</div>';
+        } else {
+            html += '<div class="stock-section">';
+            html += '<div class="stock-title">Inventory</div>';
+            html += '<div class="stock-row"><span class="stock-qty red">Out of stock</span></div>';
+            html += '</div>';
+        }
+
+        // Price rows (primary + fallbacks)
+        var priceEntries = [];
+        if (price) priceEntries.push({ label: 'Displayed Price', value: price });
+        if (p.Last_Sell_Price && p.Last_Sell_Price > 0) {
+            priceEntries.push({ label: 'Last Sell Price', value: '$' + Number(p.Last_Sell_Price).toFixed(2) });
+        }
+        if (p.Price_1 && p.Price_1 > 0) {
+            priceEntries.push({ label: 'Price 1', value: '$' + Number(p.Price_1).toFixed(2) });
+        }
+        if (priceEntries.length) {
+            html += '<div class="price-section">';
+            html += '<div class="stock-title">Pricing</div>';
+            priceEntries.forEach(function (entry) {
+                html += '<div class="price-row" style="display:flex; justify-content:space-between; gap:12px;"><span style="color:#6b7280;">' + esc(entry.label) + '</span><span class="price-val" style="font-weight:600;">' + esc(entry.value) + '</span></div>';
+            });
+            html += '</div>';
+        } else {
+            html += '<div class="price-section">';
+            html += '<div class="stock-title">Pricing</div>';
+            html += '<div class="price-row"><span>Base</span><span class="price-val">Contact Enpro for pricing</span></div>';
+            html += '</div>';
+        }
+
+        html += '</div>'; // body
+        html += '</div>'; // card
+        return html;
+    };
+
+    // -- Parse chemical GPT response into structured data --
+    function parseChemicalResponse(text) {
+        if (!text) return null;
+
+        // Extract chemical name
+        var chemMatch = text.match(/(?:Chemical|Compatibility)[:\s]*\**([^*\n]+)\**/i);
+        var chemical = chemMatch ? chemMatch[1].trim().replace(/^\*+|\*+$/g, '') : 'Chemical Compatibility';
+
+        // Extract A/B/C/D ratings for materials
+        var materials = ['Viton', 'EPDM', 'Buna-N', 'Buna N', 'Nylon', 'PTFE', 'PVDF', '316SS', '316 SS', 'Stainless'];
+        var ratingPattern = /(?:^|\n)\s*\d*\.?\s*\**\s*(Viton|EPDM|Buna[- ]?N|Nylon|PTFE|PVDF|316\s*SS|Stainless)[^:]*:\s*\**\s*([ABCD])\b/gi;
+        var compatibilities = [];
+        var seen = {};
+        var match;
+
+        while ((match = ratingPattern.exec(text)) !== null) {
+            var mat = match[1].trim();
+            var grade = match[2].toUpperCase();
+            var matKey = mat.toLowerCase().replace(/[\s-]/g, '');
+            if (seen[matKey]) continue;
+            seen[matKey] = true;
+
+            var status, statusLabel;
+            if (grade === 'A') { status = 'compatible'; statusLabel = 'A � Compatible'; }
+            else if (grade === 'B') { status = 'limited'; statusLabel = 'B � Limited'; }
+            else if (grade === 'C') { status = 'limited'; statusLabel = 'C � Caution'; }
+            else { status = 'not compatible'; statusLabel = 'D � AVOID'; }
+
+            compatibilities.push({ material: mat, status: statusLabel, grade: grade });
+        }
+
+        if (compatibilities.length === 0) return null;
+
+        // Extract extras: recommended, avoid, considerations, recommendation
+        var extras = '';
+        var extraPatterns = [
+            /(?:Recommended\s*Materials?)[:\s]*(.*)/i,
+            /(?:Materials?\s*to\s*AVOID)[:\s]*(.*)/i,
+            /(?:Key\s*Considerations?)[:\s]*(.*)/i,
+            /(?:Enpro\s*Recommendation)[:\s]*(.*)/i
+        ];
+        var extraLines = [];
+        extraPatterns.forEach(function (pat) {
+            var m = text.match(pat);
+            if (m && m[1].trim()) {
+                extraLines.push(m[0].trim());
+            }
+        });
+        if (extraLines.length) extras = extraLines.join('\n');
+
+        // Clean up chemical name � remove "Chemical Compatibility �" prefix
+        chemical = chemical.replace(/^Chemical\s*Compatibility\s*[-�]\s*/i, '').trim();
+        if (!chemical || chemical.length < 2) chemical = 'Chemical Compatibility';
+
+        return {
+            chemical: chemical,
+            compatibilities: compatibilities,
+            notes: '',
+            extras: extras
+        };
+    }
+
+    // -- Parse application guidance GPT response into structured data --
+    // Supports V5 5-bullet format: Customer Focus, Lead Product, Talking Points, Key Question, Watch Out
+    function parsePregameResponse(text) {
+        if (!text || text.length < 50) return null;
+
+        var industry = '';
+        var concerns = [];
+        var product = '';
+        var question = '';
+        var caseStudy = '';
+
+        // Extract industry from first line or header
+        var indMatch = text.match(/(?:Industry|Application|Sector|Pre-Call)[:\s]*\**([^*\n]+)/i);
+        if (indMatch) industry = indMatch[1].trim();
+
+        // V5 5-bullet format: look for labeled sections
+        var focusMatch = text.match(/\*?\*?Customer Focus\*?\*?[:\s]*([^\n]+)/i);
+        var leadMatch = text.match(/\*?\*?Lead Product\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
+        var talkMatch = text.match(/\*?\*?Talking Points?\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
+        var keyQMatch = text.match(/\*?\*?Key Question\*?\*?[:\s]*([^\n]+)/i);
+        var watchMatch = text.match(/\*?\*?Watch Out\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
+
+        if (focusMatch || leadMatch || talkMatch) {
+            // V5 format detected � use structured extraction
+            if (focusMatch) concerns.push(focusMatch[1].trim());
+            if (talkMatch) {
+                // Split talking points by sub-numbers or dashes
+                var tpText = talkMatch[1].trim();
+                var tpItems = tpText.split(/(?:\d+\)|[-��])\s*/);
+                tpItems.forEach(function(tp) {
+                    tp = tp.trim();
+                    if (tp.length > 5) concerns.push(tp);
+                });
+                if (concerns.length < 2) concerns.push(tpText);
+            }
+            if (watchMatch) concerns.push('Watch out: ' + watchMatch[1].trim());
+            if (leadMatch) product = leadMatch[1].replace(/\*\*/g, '').trim();
+            if (keyQMatch) question = keyQMatch[1].replace(/[""\u201c\u201d']/g, '').trim();
+        } else {
+            // Legacy format: extract numbered items
+            var numItems = text.match(/\d+\.\s+\*?\*?([^\n*]+)/g);
+            if (numItems && numItems.length >= 2) {
+                concerns = numItems.slice(0, 5).map(function(item) {
+                    return item.replace(/^\d+\.\s*\*?\*?/, '').replace(/\*\*/g, '').trim();
+                });
+            }
+
+            // Extract recommended product � be more specific to avoid false matches
+            var prodMatch = text.match(/(?:Lead Product|#1 Product|Recommended Product|Primary Product)[:\s]*\**([^*\n]+)/i);
+            if (prodMatch) product = prodMatch[1].trim();
+
+            // Extract closing question
+            var qMatch = text.match(/(?:Key Question|Closing Question|Ask)[:\s]*[""\u201c]?([^""\u201d\n]+)/i);
+            if (qMatch) question = qMatch[1].trim().replace(/["']/g, '');
+        }
+
+        // Extract case study
+        var caseMatch = text.match(/(?:case study|example|reference)[:\s]*\**([^*\n]+)/i);
+        if (caseMatch) caseStudy = caseMatch[1].trim();
+
+        // If we couldn't parse enough structure, return null � let it render as text
+        if (concerns.length < 2 && !product && !question) return null;
+
+        return {
+            industry: industry,
+            concerns: concerns,
+            product: product,
+            question: question,
+            caseStudy: caseStudy,
+            fullText: text
+        };
+    }
+
+    // -- Render application guidance card --
+    window.renderPregameCard = function (data) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">Application Guidance' + (data.industry ? ': ' + esc(data.industry) : '') + '</div>';
+        html += '<div class="chemical-card-body">';
+
+        if (data.concerns && data.concerns.length > 0) {
+            html += '<div style="margin-bottom:12px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Key Concerns</div>';
+            data.concerns.forEach(function (c, i) {
+                var searchTerm = c.replace(/[,()]/g, '').trim().substring(0, 40);
+                html += '<div class="followup-btn" style="display:block; text-align:left; margin-bottom:4px; padding:6px 10px; font-size:13px; cursor:pointer;" onclick="sendMessage(\'search ' + esc(searchTerm).replace(/'/g, "\\'") + '\')">' + (i+1) + '. ' + esc(c) + '</div>';
+            });
+            html += '</div>';
+        }
+
+        if (data.product) {
+            html += '<div style="margin-bottom:12px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Recommended Product</div>';
+            var prodSearch = data.product.replace(/[()]/g, '').trim();
+            html += '<div class="followup-btn" style="display:inline-block; font-size:14px; font-weight:600; padding:6px 12px; cursor:pointer;" onclick="sendMessage(\'search ' + esc(prodSearch).replace(/'/g, "\\'") + '\')">' + esc(data.product) + '</div>';
+            html += '</div>';
+        }
+
+        if (data.question) {
+            html += '<div style="margin-bottom:12px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent); cursor:pointer;" onclick="copyToClipboard(\'' + esc(data.question).replace(/'/g, "\\'") + '\', this)">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question <span style="font-size:10px; font-weight:400;">(click to copy)</span></div>';
+            html += '<div style="font-size:14px; font-style:italic; color:var(--text);">\u201c' + esc(data.question) + '\u201d</div>';
+            html += '</div>';
+        }
+
+        if (data.caseStudy) {
+            html += '<div style="margin-bottom:10px;">';
+            html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Case Study</div>';
+            html += '<div style="font-size:13px; color:var(--text);">' + esc(data.caseStudy) + '</div>';
+            html += '</div>';
+        }
+
+        // Chain action buttons � guide the rep to the next step
+        html += '<div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:8px;">';
+
+        if (data.product) {
+            var searchQuery = data.product.replace(/[()]/g, '').trim();
+            html += '<button class="followup-btn" onclick="sendMessage(\'search ' + esc(searchQuery).replace(/'/g, "\\'") + '\')">Find ' + esc(data.product.substring(0, 20)) + '</button>';
+        }
+
+        if (data.industry) {
+            html += '<button class="followup-btn" onclick="sendMessage(\'chemical compatibility common in ' + esc(data.industry).replace(/'/g, "\\'") + '\')">Chemical Check</button>';
+        }
+
+        html += '<button class="followup-btn" onclick="sendMessage(\'show me more details\')">Full Prep</button>';
+        html += '</div>';
+
+        html += '</div></div>';
+        return html;
+    };
+
+    // -- Render chemical card --
+    window.renderChemicalCard = function (data) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">' + esc(data.chemical || 'Chemical Compatibility') + '</div>';
+        html += '<div class="chemical-card-body">';
+
+        if (data.compatibilities && Array.isArray(data.compatibilities)) {
+            data.compatibilities.forEach(function (row) {
+                var grade = (row.grade || '').toUpperCase();
+                var status = (row.status || '').toLowerCase();
+
+                // Determine styling from grade first, fall back to status text
+                var rowCls, badgeCls, displayText;
+                if (grade === 'A') {
+                    rowCls = 'compatible'; badgeCls = 'green';
+                    displayText = row.status || 'A � Compatible';
+                } else if (grade === 'B') {
+                    rowCls = 'limited'; badgeCls = 'orange';
+                    displayText = row.status || 'B � Limited';
+                } else if (grade === 'C') {
+                    rowCls = 'limited'; badgeCls = 'orange';
+                    displayText = row.status || 'C � Caution';
+                } else if (grade === 'D') {
+                    rowCls = 'not-compatible'; badgeCls = 'red';
+                    displayText = row.status || 'D � AVOID';
+                } else {
+                    // Legacy fallback for status-only data
+                    rowCls = status.includes('compatible') && !status.includes('not') ? 'compatible' :
+                        status.includes('not') ? 'not-compatible' : 'limited';
+                    badgeCls = rowCls === 'compatible' ? 'green' :
+                        rowCls === 'not-compatible' ? 'red' : 'orange';
+                    displayText = row.status || 'Unknown';
+                }
+
+                html += '<div class="compat-row ' + rowCls + '">';
+                html += '<span><strong>' + esc(row.material || row.media || '') + '</strong></span>';
+                html += '<span class="compat-badge ' + badgeCls + '">' + esc(displayText) + '</span>';
+                html += '</div>';
+            });
+        }
+
+        if (data.notes) {
+            html += '<div style="margin-top: 10px; font-size: 12px; color: var(--text-light); font-style: italic;">' + esc(data.notes) + '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    };
+
+    // -- Render table card --
+    window.renderTableCard = function (data) {
+        var html = '<div class="table-card">';
+        if (data.title) {
+            html += '<div class="table-card-header">' + esc(data.title) + '</div>';
+        }
+        html += '<div class="table-card-wrapper"><table>';
+
+        if (data.headers && Array.isArray(data.headers)) {
+            html += '<thead><tr>';
+            data.headers.forEach(function (h) {
+                html += '<th>' + esc(h) + '</th>';
+            });
+            html += '</tr></thead>';
+        }
+
+        if (data.rows && Array.isArray(data.rows)) {
+            html += '<tbody>';
+            data.rows.forEach(function (row) {
+                html += '<tr>';
+                if (Array.isArray(row)) {
+                    row.forEach(function (cell) {
+                        html += '<td>' + esc(String(cell)) + '</td>';
+                    });
+                } else if (typeof row === 'object') {
+                    (data.headers || Object.keys(row)).forEach(function (k) {
+                        html += '<td>' + esc(String(row[k] || '')) + '</td>';
+                    });
+                }
+                html += '</tr>';
+            });
+            html += '</tbody>';
+        }
+
+        html += '</table></div></div>';
+        return html;
+    };
+
+    // -- Contextual Action Panel (replaces simple follow-up buttons) --
+    function appendFollowUps(partNumber, customFollowUps) {
+        if (customFollowUps) {
+            // Custom follow-ups: render as simple buttons
+            var container = document.createElement('div');
+            container.className = 'followup-buttons';
+            container.style.maxWidth = '85%';
+            customFollowUps.forEach(function (fu, i) {
+                var btn = document.createElement('button');
+                btn.className = 'followup-btn';
+                btn.textContent = fu;
+                btn.onclick = function () { sendMessage(fu); };
+                container.appendChild(btn);
+            });
+            chatArea.appendChild(container);
+            scrollToBottom();
+            return;
+        }
+
+        if (!partNumber) return;
+
+        // Build contextual action panel - simplified to 2 actions
+        var panelId = 'actionPanel_' + Date.now();
+        var panel = document.createElement('div');
+        panel.className = 'msg bot';
+        panel.innerHTML = '<div class="action-panel" id="' + panelId + '">' +
+            '<div class="action-panel-header">Next Steps for ' + esc(partNumber) + '</div>' +
+            '<div class="action-grid" style="grid-template-columns: 1fr 1fr;">' +
+                '<div class="action-card" onclick="startCompareQuote(\'' + esc(partNumber) + '\', this)" data-action-num="1">' +
+                    '<div class="action-num">1</div>' +
+                    '<div class="action-label">Compare</div>' +
+                    '<div class="action-desc">Add to quote & compare</div>' +
+                '</div>' +
+                '<div class="action-card" onclick="showModal(\'pregame\')" data-action-num="2">' +
+                    '<div class="action-num">2</div>' +
+                    '<div class="action-label">Customer Pre Game</div>' +
+                    '<div class="action-desc">Meeting prep for this product</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+        chatArea.appendChild(panel);
+        scrollToBottom();
+    }
+
+    // Run a simple action (no additional input needed)
+    window.runAction = function (action, partNumber, el) {
+        if (el) {
+            el.classList.add('action-done');
+            el.style.pointerEvents = 'none';
+        }
+        switch (action) {
+            case 'chemical':
+                sendMessage('chemical compatibility check for part ' + partNumber);
+                break;
+
+        }
+    };
+
+    // Show compare � opens side panel with smart suggestions
+    window.showCompareForm = function (partNumber, panelId) {
+        // Instead of inline form, open compare side panel
+        openComparePanel(partNumber);
+    };
+
+    // Start compare and add to quote state (auto-populate first box)
+    window.startCompareQuote = function (partNumber, el) {
+        if (el) {
+            el.classList.add('action-done');
+            el.style.pointerEvents = 'none';
+        }
+        // Add to quote state first
+        sendMessage('add ' + partNumber + ' to quote');
+        // Then open compare panel
+        setTimeout(function() {
+            openComparePanel(partNumber);
+        }, 500);
+    };
+
+    // -- Compare Side Panel --
+    function openComparePanel(partNumber) {
+        var panel = document.getElementById('comparePanel');
+        var overlay = document.getElementById('comparePanelOverlay');
+        var body = document.getElementById('comparePanelBody');
+
+        document.getElementById('comparePanelTitle').textContent = 'Compare: ' + partNumber;
+        body.innerHTML = '<div class="compare-loading">Finding similar products...</div>';
+
+        panel.classList.add('open');
+        overlay.classList.add('active');
+
+        fetch(API_BASE + '/api/compare-suggestions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ part_number: partNumber })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            renderComparePanel(data, partNumber);
+        })
+        .catch(function (err) {
+            body.innerHTML = '<div class="compare-empty">Could not load suggestions. Try again.</div>';
+        });
+    }
+
+    window.closeComparePanel = function () {
+        document.getElementById('comparePanel').classList.remove('open');
+        document.getElementById('comparePanelOverlay').classList.remove('active');
+    };
+
+    function renderComparePanel(data, sourcePartNumber) {
+        var body = document.getElementById('comparePanelBody');
+        var html = '';
+
+        // Source product card
+        if (data.source) {
+            var s = data.source;
+            html += '<div class="compare-source">';
+            html += '<div class="compare-source-label">Comparing</div>';
+            html += '<div class="compare-source-pn">' + esc(s.Part_Number || sourcePartNumber) + '</div>';
+            html += '<div class="compare-source-desc">' + esc(s.Description || '') + '</div>';
+            html += '<div class="compare-source-specs">';
+            if (s.Micron) html += '<span class="compare-spec-tag">Micron: ' + esc(String(s.Micron)) + '</span>';
+            if (s.Media) html += '<span class="compare-spec-tag">' + esc(String(s.Media)) + '</span>';
+            if (s.Max_Temp_F) html += '<span class="compare-spec-tag">' + esc(String(s.Max_Temp_F)) + '�F</span>';
+            if (s.Max_PSI) html += '<span class="compare-spec-tag">' + esc(String(s.Max_PSI)) + ' PSI</span>';
+            if (s.Final_Manufacturer) html += '<span class="compare-spec-tag">' + esc(String(s.Final_Manufacturer)) + '</span>';
+            html += '</div></div>';
+        }
+
+        // Manual compare input with typeahead
+        html += '<div style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;">';
+        html += '<label style="font-size:13px; font-weight:600; margin-bottom:6px; display:block;">Compare with:</label>';
+        html += '<div style="display:flex; gap:8px; flex-wrap:wrap; position:relative;">';
+        html += '<div style="flex:1; min-width:200px; position:relative;">';
+        html += '<input type="text" id="compareManualInput" placeholder="Type 2+ chars to search parts..." autocomplete="off" onkeydown="if(event.key===\'Enter\')runCompareManual(\'' + esc(sourcePartNumber) + '\')" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<div id="suggestManual" style="display:none; position:absolute; top:100%; left:0; right:0; background:white; border:1px solid var(--border); border-radius:0 0 6px 6px; max-height:200px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>';
+        html += '</div>';
+        html += '<button class="quote-btn-primary" style="flex:none; padding:10px 16px;" onclick="runCompareManual(\'' + esc(sourcePartNumber) + '\')">Compare</button>';
+        html += '</div></div>';
+
+        // Categories
+        if (data.categories && data.categories.length > 0) {
+            html += '<div style="font-size:12px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:12px;">Or pick from suggestions:</div>';
+            data.categories.forEach(function (cat) {
+                html += '<div class="compare-category">';
+                html += '<div class="compare-category-header">' + esc(cat.name) + '</div>';
+                html += '<div class="compare-category-desc">' + esc(cat.desc || '') + '</div>';
+
+                cat.products.forEach(function (p) {
+                    var specParts = [];
+                    if (p.Micron) specParts.push(p.Micron + ' micron');
+                    if (p.Max_Temp_F) specParts.push(p.Max_Temp_F + '�F');
+                    if (p.Max_PSI) specParts.push(p.Max_PSI + ' PSI');
+                    var priceStr = p.Price || 'Contact Enpro';
+
+                    html += '<div class="compare-suggestion" onclick="runCompareFromPanel(\'' + esc(sourcePartNumber) + '\', \'' + esc(p.Part_Number || '') + '\')">';
+                    html += '<div class="compare-suggestion-info">';
+                    html += '<div class="compare-suggestion-pn">' + esc(p.Part_Number || '') + '</div>';
+                    html += '<div class="compare-suggestion-desc">' + esc(p.Description || '') + ' � ' + esc(String(priceStr)) + '</div>';
+                    if (specParts.length) {
+                        html += '<div class="compare-suggestion-specs">';
+                        specParts.forEach(function (specPart) {
+                            html += '<div class="spec-line">' + esc(specPart) + '</div>';
+                        });
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                    html += '<div class="compare-suggestion-action">Compare &rarr;</div>';
+                    html += '</div>';
+                });
+
+                html += '</div>';
+            });
+        } else {
+            html += '<div class="compare-empty">No similar products found in the catalog. Use the text box above to compare manually.</div>';
+        }
+
+        body.innerHTML = html;
+
+        // Wire up typeahead on manual compare input
+        var manualInput = document.getElementById('compareManualInput');
+        var manualDropdown = document.getElementById('suggestManual');
+        if (manualInput && manualDropdown) {
+            var debounce = null;
+            manualInput.addEventListener('input', function() {
+                clearTimeout(debounce);
+                var q = manualInput.value.trim();
+                if (q.length < 2) { manualDropdown.style.display = 'none'; return; }
+                debounce = setTimeout(function() {
+                    fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(q))
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            var sugs = data.suggestions || [];
+                            if (sugs.length === 0) { manualDropdown.style.display = 'none'; return; }
+                            var items = '';
+                            sugs.forEach(function(s) {
+                                var pn = s.Part_Number || s.part_number || s;
+                                var desc = s.Description || s.description || '';
+                                items += '<div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:13px;" onmousedown="document.getElementById(\'compareManualInput\').value=\'' + esc(String(pn)).replace(/'/g, "\\'") + '\'; document.getElementById(\'suggestManual\').style.display=\'none\';">' + esc(pn + (desc ? ' -- ' + desc.substring(0, 40) : '')) + '</div>';
+                            });
+                            manualDropdown.innerHTML = items;
+                            manualDropdown.style.display = 'block';
+                        });
+                }, 200);
+            });
+            manualInput.addEventListener('blur', function() {
+                setTimeout(function() { manualDropdown.style.display = 'none'; }, 200);
+            });
+        }
+    }
+
+    window.runCompareFromPanel = function (sourcePn, targetPn) {
+        closeComparePanel();
+        sendMessage('compare ' + sourcePn + ' vs ' + targetPn);
+    };
+
+    function populateCompareDatalist(inputId, listId, query) {
+        var input = document.getElementById(inputId);
+        var list = document.getElementById(listId);
+        if (!input || !list) return;
+
+        var q = (query || input.value || '').trim();
+        if (q.length < 2) {
+            list.innerHTML = '';
+            return;
+        }
+
+        fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(q) + '&mode=contains&in_stock=all')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var suggestions = (data && data.suggestions) ? data.suggestions.slice(0, 8) : [];
+                if (!suggestions.length) {
+                    list.innerHTML = '';
+                    return;
+                }
+
+                var html = '';
+                suggestions.forEach(function (item) {
+                    var pn = item.Part_Number || '';
+                    var desc = item.Description || '';
+                    html += '<option value="' + esc(pn).replace(/"/g, '&quot;') + '">' + esc(pn + (desc ? ' � ' + desc : '')) + '</option>';
+                });
+                list.innerHTML = html;
+            })
+            .catch(function () {
+                list.innerHTML = '';
+            });
+    }
+
+    window.runCompareManual = function (sourcePn) {
+        var input = document.getElementById('compareManualInput');
+        var target = input && input.value.trim();
+        if (!target) {
+            alert('Please select or enter a part number to compare');
+            return;
+        }
+        closeComparePanel();
+        sendMessage('compare ' + sourcePn + ' vs ' + target);
+    };
+
+    // -- Compare Selector (top-nav / quick action Compare button) --
+    window.openCompareSelector = function() {
+        var panel = document.getElementById('comparePanel');
+        var overlay = document.getElementById('comparePanelOverlay');
+        var body = document.getElementById('comparePanelBody');
+
+        document.getElementById('comparePanelTitle').textContent = 'Compare Products';
+        body.innerHTML = '<div class="compare-loading">Loading part numbers...</div>';
+        panel.classList.add('open');
+        overlay.classList.add('active');
+
+        // Build typeahead compare form (no bulk dropdown load)
+        (function() {
+                var partA = '';
+                if (sessionContext && sessionContext.pinnedPart) {
+                    partA = sessionContext.pinnedPart.Part_Number || '';
+                }
+
+                var html = '';
+
+                // Recently viewed quick picks
+                if (productsHistory && productsHistory.length > 0) {
+                    html += '<div style="margin-bottom:12px; font-size:12px; color:var(--text-light);">Recent: ';
+                    productsHistory.slice(0, 5).forEach(function(prod) {
+                        html += '<span style="cursor:pointer; color:var(--accent); margin-right:8px;" onclick="document.getElementById(\'comparePartA\').value=\'' + esc(prod.part) + '\'">' + esc(prod.part) + '</span>';
+                    });
+                    html += '</div>';
+                }
+
+                html += '<div style="margin-bottom:16px; position:relative;">';
+                html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part A</label>';
+                html += '<input type="text" id="comparePartA" value="' + esc(partA) + '" placeholder="Type 2+ characters to search..." autocomplete="off" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+                html += '<div id="suggestA" class="compare-suggest-dropdown" style="display:none; position:absolute; top:100%; left:0; right:0; background:white; border:1px solid var(--border); border-radius:0 0 6px 6px; max-height:200px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>';
+                html += '</div>';
+
+                html += '<div style="margin-bottom:16px; position:relative;">';
+                html += '<label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Part B</label>';
+                html += '<input type="text" id="comparePartB" placeholder="Type 2+ characters to search..." autocomplete="off" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+                html += '<div id="suggestB" class="compare-suggest-dropdown" style="display:none; position:absolute; top:100%; left:0; right:0; background:white; border:1px solid var(--border); border-radius:0 0 6px 6px; max-height:200px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>';
+                html += '</div>';
+
+                html += '<button onclick="runCompareSelector()" style="width:100%; padding:12px; background:var(--accent); color:white; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; font-family:inherit;">Compare Side-by-Side</button>';
+
+                body.innerHTML = html;
+
+                // Wire up typeahead for both inputs
+                ['A', 'B'].forEach(function(label) {
+                    var input = document.getElementById('comparePart' + label);
+                    var dropdown = document.getElementById('suggest' + label);
+                    var debounce = null;
+                    input.addEventListener('input', function() {
+                        clearTimeout(debounce);
+                        var q = input.value.trim();
+                        if (q.length < 2) { dropdown.style.display = 'none'; return; }
+                        debounce = setTimeout(function() {
+                            fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(q))
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    var sugs = data.suggestions || [];
+                                    if (sugs.length === 0) { dropdown.style.display = 'none'; return; }
+                                    var items = '';
+                                    sugs.forEach(function(s) {
+                                        var pn = s.Part_Number || s.part_number || s;
+                                        var desc = s.Description || s.description || '';
+                                        var display = pn + (desc ? ' -- ' + desc.substring(0, 40) : '');
+                                        items += '<div style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:13px;" onmousedown="document.getElementById(\'comparePart' + label + '\').value=\'' + esc(String(pn)).replace(/'/g, "\\'") + '\'; document.getElementById(\'suggest' + label + '\').style.display=\'none\';">' + esc(display) + '</div>';
+                                    });
+                                    dropdown.innerHTML = items;
+                                    dropdown.style.display = 'block';
+                                });
+                        }, 200);
+                    });
+                    input.addEventListener('blur', function() {
+                        setTimeout(function() { dropdown.style.display = 'none'; }, 200);
+                    });
+                });
+            })();
+    };
+
+    window.runCompareSelector = function() {
+        var partA = (document.getElementById('comparePartA') || {}).value.trim();
+        var partB = (document.getElementById('comparePartB') || {}).value.trim();
+
+        if (!partA || !partB) {
+            alert('Enter both part numbers to compare.');
+            return;
+        }
+
+        closeComparePanel();
+        if (typeof sessionContext !== 'undefined') sessionContext.compared = true;
+        if (typeof renderContextCard === 'function') renderContextCard();
+        sendMessage('compare ' + partA + ' vs ' + partB);
+    };
+
+    // Execute the compare
+    window.runCompare = function (partNumber, panelId) {
+        var input = document.getElementById('compareInput_' + panelId);
+        if (!input || !input.value.trim()) return;
+        var compareTo = input.value.trim();
+        sendMessage('compare ' + partNumber + ' vs ' + compareTo);
+    };
+
+    // -- Quote Readiness Tracker --
+    var quoteStateData = null;
+
+    function stateLineItems(state) {
+        if (!state || !Array.isArray(state.line_items)) return [];
+        return state.line_items
+            .filter(function (item) { return item && item.resolved && item.resolved.part_number; })
+            .map(function (item) {
+                return {
+                    part_number: item.resolved.part_number || '',
+                    description: item.resolved.description || item.raw_input.description || '',
+                    quantity: item.quantity || item.raw_input.quantity || 1,
+                    price: item.resolved.price || '',
+                    source: 'conversation'
+                };
+            });
+    }
+
+    function getCombinedQuoteItems() {
+        var combined = [];
+        var seen = {};
+
+        stateLineItems(quoteStateData).forEach(function (item) {
+            var key = (item.part_number || '').toUpperCase();
+            if (!key) return;
+            seen[key] = item;
+            combined.push(item);
+        });
+
+        quoteItems.forEach(function (item) {
+            var key = (item.part_number || '').toUpperCase();
+            if (!key) return;
+            if (seen[key]) {
+                seen[key].quantity = item.quantity || seen[key].quantity || 1;
+                if (item.price) seen[key].price = item.price;
+                if (item.description) seen[key].description = item.description;
+                seen[key].source = 'manual+conversation';
+            } else {
+                combined.push(item);
+                seen[key] = item;
+            }
+        });
+
+        return combined;
+    }
+
+    function buildQuoteNotesFromState() {
+        if (!quoteStateData) return quoteData.notes || '';
+
+        var notes = [];
+        if (quoteData.notes) notes.push(quoteData.notes);
+
+        if (quoteStateData.request) {
+            if (quoteStateData.request.application) notes.push('Application: ' + quoteStateData.request.application);
+            if (quoteStateData.request.chemical) notes.push('Chemical: ' + quoteStateData.request.chemical);
+            if (quoteStateData.request.urgency) notes.push('Urgency: ' + quoteStateData.request.urgency);
+        }
+
+        if (Array.isArray(quoteStateData.open_questions) && quoteStateData.open_questions.length) {
+            notes.push('Open questions: ' + quoteStateData.open_questions.join('; '));
+        }
+
+        return notes.filter(Boolean).join('\n');
+    }
+
+    function hydrateQuoteDataFromState() {
+        var customer = quoteStateData && quoteStateData.customer ? quoteStateData.customer : {};
+        quoteData.company = quoteData.company || customer.company_name || customer.account_name || '';
+        quoteData.contact_name = quoteData.contact_name || customer.contact_name || '';
+        quoteData.contact_email = quoteData.contact_email || customer.email || '';
+        quoteData.contact_phone = quoteData.contact_phone || customer.phone || '';
+        quoteData.ship_to = quoteData.ship_to || customer.ship_to || '';
+        quoteData.items = getCombinedQuoteItems();
+        quoteData.notes = buildQuoteNotesFromState();
+    }
+
+    async function fetchQuoteState() {
+        try {
+            var res = await fetch(API_BASE + '/api/quote-state/' + encodeURIComponent(sessionId));
+            if (!res.ok) return null;
+            var data = await res.json();
+            if (data && data.quote_state) {
+                syncQuoteState(data.quote_state);
+                return data.quote_state;
+            }
+        } catch (err) {
+            console.error('Quote state fetch error:', err);
+        }
+        return null;
+    }
+
+    function syncQuoteState(state) {
+        quoteStateData = state || null;
+        hydrateQuoteDataFromState();
+        renderQuoteTracker();
+        renderQuoteDrawer();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) {
+            renderQuoteStep();
+        }
+    }
+
+    function renderQuoteTracker() {
+        var hasState = quoteStateData && (
+            stateLineItems(quoteStateData).length ||
+            (quoteStateData.customer && (quoteStateData.customer.company_name || quoteStateData.customer.account_name))
+        );
+        if (!hasState) {
+            var existing = document.getElementById('quoteTracker');
+            if (existing) existing.remove();
+            return;
+        }
+
+        var tracker = document.getElementById('quoteTracker');
+        if (!tracker) {
+            tracker = document.createElement('div');
+            tracker.id = 'quoteTracker';
+            tracker.className = 'quote-tracker';
+            // Insert before the input area
+            var inputArea = document.querySelector('.input-area');
+            inputArea.parentNode.insertBefore(tracker, inputArea);
+        }
+
+        var customerReady = !!(quoteStateData.customer && (quoteStateData.customer.company_name || quoteStateData.customer.account_name));
+        var items = stateLineItems(quoteStateData);
+        var lineReady = items.length > 0;
+        var quantityReady = items.length > 0 && items.every(function (item) { return !!item.quantity; });
+        var doneCount = [customerReady, lineReady, quantityReady].filter(Boolean).length;
+        var primary = items[0] ? items[0].part_number : '';
+
+        var html = '<div class="quote-tracker-inner">';
+        html += '<div class="qt-title">Quote State</div>';
+        html += '<div class="quote-tracker-part">' + esc(primary || 'Conversation quote in progress') + '</div>';
+        html += '<div class="quote-tracker-steps">';
+        [
+            { label: 'Customer', done: customerReady },
+            { label: 'Line Item', done: lineReady },
+            { label: 'Quantity', done: quantityReady }
+        ].forEach(function (step) {
+            html += '<div class="qt-step ' + (step.done ? 'done' : '') + '">';
+            html += '<span class="qt-check">' + (step.done ? '&#10003;' : '&#9675;') + '</span>';
+            html += '<span class="qt-label">' + step.label + '</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+
+        if (quoteStateData.ready_for_quote) {
+            html += '<button class="qt-ready-btn" onclick="openQuoteModal()">Open Quote</button>';
+        } else {
+            html += '<div class="qt-progress">' + doneCount + '/3 fields captured</div>';
+        }
+
+        if (quoteStateData.open_questions && quoteStateData.open_questions.length) {
+            html += '<div class="qt-progress" style="margin-top:8px;">Next: ' + esc(quoteStateData.open_questions[0]) + '</div>';
+        }
+
+        html += '</div>';
+        tracker.innerHTML = html;
+    }
+
+    // Reset quote tracker on new chat
+    var origNewChat = window.newChat;
+    window.newChat = function () {
+        var previousSessionId = sessionId;
+        quoteStateData = null;
+        quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
+        quoteItems = [];
+        localStorage.removeItem('enpro_quote_items');
+        adminStats = { queries: 0, cost: 0, totalLatency: 0, errors: 0, reports: 0 };
+        updateAdminFooter();
+        var tracker = document.getElementById('quoteTracker');
+        if (tracker) tracker.remove();
+        origNewChat();
+        fetch(API_BASE + '/api/quote-state/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: previousSessionId || sessionId })
+        }).catch(function (err) {
+            console.error('Quote state reset failed:', err);
+        });
+        renderQuoteDrawer();
+    };
+
+    // -- Numbered options --
+    function appendNumberedOptions(options) {
+        lastFollowUps = options;
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'msg bot';
+
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+
+        var optDiv = document.createElement('div');
+        optDiv.className = 'numbered-options';
+
+        options.forEach(function (opt, i) {
+            var row = document.createElement('div');
+            row.className = 'numbered-option';
+            row.onclick = function () { sendMessage(opt); };
+            row.innerHTML = '<span class="option-num">' + (i + 1) + '</span><span>' + esc(opt) + '</span>';
+            optDiv.appendChild(row);
+        });
+
+        bubble.appendChild(optDiv);
+        wrapper.appendChild(bubble);
+        chatArea.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    // -- Append message --
+    function appendMessage(role, html) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'msg ' + role;
+
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        bubble.innerHTML = html;
+
+        var time = document.createElement('div');
+        time.className = 'msg-time';
+        time.textContent = timeStr();
+
+        wrapper.appendChild(bubble);
+        wrapper.appendChild(time);
+        chatArea.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    // -- Append raw card HTML --
+    function appendCard(cardHtml, staggered) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'msg bot';
+        if (staggered) {
+            wrapper.style.opacity = '0';
+            wrapper.style.transform = 'translateY(12px)';
+            wrapper.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+        }
+        wrapper.innerHTML = cardHtml;
+        chatArea.appendChild(wrapper);
+        if (staggered) {
+            // Trigger animation on next frame
+            requestAnimationFrame(function () {
+                wrapper.style.opacity = '1';
+                wrapper.style.transform = 'translateY(0)';
+            });
+        }
+        scrollToBottom();
+    }
+
+    // -- Markdown-lite formatting --
+    function formatMarkdown(text) {
+        if (!text) return '';
+        // Strip internal data source labels
+        text = text.replace(/\[V25 FILTERS\]/gi, '');
+        text = text.replace(/\[V\d+ FILTERS?\]/gi, '');
+        text = text.replace(/V25 FILTERS?/gi, '');
+        text = text.replace(/\[NOT IN DATA\]/g, '');
+        text = text.replace(/\[NO PRICE\]/g, '');
+        text = text.replace(/\[CRITICAL DATA INTEGRITY RULE\][\s\S]*?\[USER MESSAGE\]:/g, '');
+        // Strip follow-up option lines that GPT includes as text
+        text = text.replace(/^.*(?:Application Guidance|quote ready|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:quote ready|help|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:help)?\.?\s*$/gim, '');
+        // Clean up stray markdown artifacts
+        text = text.replace(/^\s*[-��]\s*/gm, '');  // Strip leading dashes/bullets
+        text = text.replace(/^\s*#{1,3}\s+/gm, '');  // Strip heading markers
+        text = text.replace(/\s{2,}/g, ' ');
+        var s = esc(text);
+        // Bold
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // Strip remaining stray stars
+        s = s.replace(/\*/g, '');
+        // Inline code
+        s = s.replace(/`(.+?)`/g, '<code>$1</code>');
+        // Numbered lists � add proper spacing
+        s = s.replace(/(\d+)\.\s+/g, '<br>$1. ');
+        // Line breaks
+        s = s.replace(/\n/g, '<br>');
+        // Clean double breaks
+        s = s.replace(/(<br\s*\/?>){3,}/g, '<br><br>');
+        return s;
+    }
+
+    // -- HTML escape --
+    function esc(str) {
+        if (!str) return '';
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // -- Loading state --
+    function setLoading(on) {
+        isLoading = on;
+        if (sendBtn) sendBtn.disabled = on;
+        typingEl.classList.toggle('active', on);
+        if (on) {
+            chatArea.appendChild(typingEl);
+            scrollToBottom();
+        }
+    }
+
+    // -- Scroll --
+    function scrollToBottom() {
+        requestAnimationFrame(function () {
+            chatArea.scrollTop = chatArea.scrollHeight;
+        });
+    }
+
+    // -- Clear welcome --
+    function clearWelcome() {
+        var w = chatArea.querySelector('.welcome');
+        if (w) w.remove();
+    }
+
+    // -- Modal management --
+    var lookupModeRow = document.getElementById('lookupModeRow');
+    var lookupMode = document.getElementById('lookupMode');
+    var pregameStep = 0;
+    var pregameData = { customer: '', industry: '', application: '', knownInfo: '', specs: {} };
+
+    function resetPregameWizard() {
+        pregameStep = 0;
+        pregameData = { customer: '', industry: '', application: '', knownInfo: '', specs: {} };
+        // Clear spec dropdowns
+        document.getElementById('specMicron').value = '';
+        document.getElementById('specMedia').value = '';
+        document.getElementById('specTemp').value = '';
+        document.getElementById('specPSI').value = '';
+        document.getElementById('specFlow').value = '';
+    }
+
+    function applyPregameWizardStep() {
+        // Original form layout: Industry, Product Type, Manufacturer, Customer Name
+        modalTitle.textContent = 'Meeting Pregame';
+        modalLabel.textContent = 'Industry';
+        modalInput.style.display = 'none';
+        
+        // Build the original form HTML
+        var html = '<div style="margin-bottom:16px;">';
+        html += '<label style="display:block; font-size:14px; margin-bottom:6px;">Industry</label>';
+        html += '<select id="pregameIndustry" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<option value="">-- Select industry --</option>';
+        html += '<option value="Brewery">Brewery / Beverage</option>';
+        html += '<option value="Hydraulic">Hydraulic / Lube Oil</option>';
+        html += '<option value="Compressed Air">Compressed Air / Gas</option>';
+        html += '<option value="Wastewater">Wastewater / Water Treatment</option>';
+        html += '<option value="Chemical">Chemical Processing</option>';
+        html += '<option value="Food">Food & Beverage</option>';
+        html += '<option value="Pharmaceutical">Pharmaceutical / Biotech</option>';
+        html += '<option value="Oilfield">Oilfield / Energy</option>';
+        html += '<option value="Mining">Mining / Heavy Industry</option>';
+        html += '<option value="Automotive">Automotive / Manufacturing</option>';
+        html += '<option value="Other">Other / General Industrial</option>';
+        html += '</select>';
+        html += '</div>';
+        
+        html += '<div style="margin-bottom:16px;">';
+        html += '<label style="display:block; font-size:14px; margin-bottom:6px;">Product Type <span style="color:#666; font-size:12px;">(optional)</span></label>';
+        html += '<select id="pregameProductType" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<option value="">-- Any product type --</option>';
+        html += '<option value="Bag Filter">Bag Filter</option>';
+        html += '<option value="Cartridges">Cartridges</option>';
+        html += '<option value="Elements">Elements</option>';
+        html += '<option value="Housings">Housings</option>';
+        html += '<option value="Membranes">Membranes</option>';
+        html += '<option value="Depth Sheets">Depth Sheets</option>';
+        html += '<option value="Air Filter">Air Filter</option>';
+        html += '</select>';
+        html += '</div>';
+        
+        html += '<div style="margin-bottom:16px;">';
+        html += '<label style="display:block; font-size:14px; margin-bottom:6px;">Manufacturer <span style="color:#666; font-size:12px;">(optional)</span></label>';
+        html += '<select id="pregameManufacturer" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;">';
+        html += '<option value="">-- Any manufacturer --</option>';
+        html += '</select>';
+        html += '</div>';
+        
+        html += '<div style="margin-bottom:16px;">';
+        html += '<label style="display:block; font-size:14px; margin-bottom:6px;">Customer Name <span style="color:#666; font-size:12px;">(optional)</span></label>';
+        html += '<input type="text" id="pregameCustomer" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; box-sizing:border-box;" placeholder="e.g., Acme Brewing Co.">';
+        html += '</div>';
+        
+        modalHint.innerHTML = html;
+
+        // Dynamically load manufacturers into pregame dropdown
+        fetch(API_BASE + '/api/manufacturers/list')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var sel = document.getElementById('pregameManufacturer');
+                if (sel && data.manufacturers) {
+                    data.manufacturers.forEach(function(mfr) {
+                        var opt = document.createElement('option');
+                        opt.value = mfr;
+                        opt.textContent = mfr;
+                        sel.appendChild(opt);
+                    });
+                }
+            }).catch(function() {});
+
+        // Hide other elements
+        var el;
+        el = document.getElementById('industrySelect'); if (el) el.style.display = 'none';
+        el = document.getElementById('specSelects'); if (el) el.style.display = 'none';
+    }
+
+    window.showModal = function (type) {
+        currentModalType = type;
+        modalOverlay.classList.add('active');
+
+        if (type === 'pregame') {
+            resetPregameWizard();
+            applyPregameWizardStep();
+            return;
+        }
+
+        // Show/hide lookup mode selector
+        lookupModeRow.style.display = type === 'lookup' ? 'block' : 'none';
+
+        // Show/hide dropdowns per modal type
+        document.getElementById('chemicalSelect').style.display = type === 'chemical' ? 'block' : 'none';
+        document.getElementById('manufacturerSelect').style.display = type === 'manufacturer' ? 'block' : 'none';
+        document.getElementById('productTypeSelect').style.display = type === 'product_type' ? 'block' : 'none';
+        document.getElementById('searchTags').style.display = type === 'search' ? 'block' : 'none';
+
+        switch (type) {
+            case 'lookup':
+                modalTitle.textContent = 'Lookup by Any Code';
+                modalLabel.textContent = 'Enter Code';
+                modalInput.placeholder = 'e.g., HC9600, PN12345, ALT-5678';
+                modalHint.innerHTML = '<strong>Try:</strong> P21 Part Number | Alt Code | Supplier Code | Manufacturer Code<br><small>Voice Echo will search all 4 paths instantly</small>';
+                break;
+            case 'chemical':
+                modalTitle.textContent = 'Chemical Compatibility';
+                modalLabel.textContent = 'Chemical Name';
+                modalInput.placeholder = 'e.g., Sulfuric Acid';
+                modalHint.textContent = 'Enter the chemical to check media compatibility.';
+                break;
+            case 'search':
+                modalTitle.textContent = 'Search Products';
+                modalLabel.textContent = 'Search Query';
+                modalInput.placeholder = 'e.g., 10 micron bag filter';
+                modalHint.textContent = 'Describe what you need � specs, type, application.';
+                break;
+            case 'supplier':
+                modalTitle.textContent = 'Supplier Code Lookup';
+                modalLabel.textContent = 'Supplier Code';
+                modalInput.placeholder = 'e.g., T1030000000';
+                modalHint.textContent = 'Enter the supplier/OEM part number.';
+                break;
+            case 'industry':
+                modalTitle.textContent = 'Filter by Industry';
+                modalLabel.textContent = 'Industry / Application';
+                modalInput.style.display = 'none';
+                document.getElementById('industrySelect').style.display = 'block';
+                document.getElementById('industrySelect').value = '';
+                modalHint.innerHTML = '<strong>Narrow down:</strong> Select industry to filter products by application<br><small>Crosswalk will show industry-specific alternatives</small>';
+                break;
+            case 'manufacturer':
+                modalTitle.textContent = 'Filter by Manufacturer';
+                modalLabel.textContent = 'Manufacturer';
+                modalInput.placeholder = 'e.g., Pall, Graver, Filtrox';
+                modalHint.innerHTML = '<strong>Narrow down:</strong> Select manufacturer for OEM lookup & crosswalk<br><small>Shows all products + available equivalents</small>';
+                break;
+            case 'specs':
+                modalTitle.textContent = 'Lookup by Specifications';
+                modalLabel.textContent = 'Spec Query';
+                modalInput.placeholder = 'e.g., 10 micron, 150 PSI, polypropylene';
+                modalHint.innerHTML = '<strong>Search by specs:</strong> Micron | Media | Max Temp | Max PSI | Flow Rate<br><small>Voice Echo finds matching products across all manufacturers</small>';
+                break;
+            case 'price':
+                modalTitle.textContent = 'Price Check';
+                modalLabel.textContent = 'Part Number';
+                modalInput.placeholder = 'e.g., CLR130, EPE-10-5';
+                modalHint.textContent = 'Enter the part number to check pricing.';
+                break;
+            case 'compare':
+                modalTitle.textContent = 'Compare & Crosswalk';
+                modalLabel.textContent = 'Parts to Compare';
+                modalInput.placeholder = 'e.g., CLR130 vs CLR140';
+                modalHint.innerHTML = '<strong>Learning Mode:</strong> Compare specs, pricing, stock + see crosswalk equivalents<br><small>Enter 2+ part numbers separated by "vs" or comma</small>';
+                break;
+        }
+
+        modalInput.value = '';
+        setTimeout(function () { modalInput.focus(); }, 100);
+    };
+
+    function updateLookupHint() {
+        var mode = lookupMode.value;
+        if (mode === 'exact') {
+            modalHint.textContent = 'Enter the exact part number to look up.';
+        } else if (mode === 'starts_with') {
+            modalHint.textContent = 'Enter the beginning of a part number. Shows top 10 matches.';
+        } else {
+            modalHint.textContent = 'Enter any text contained in the part number. Shows top 10 matches.';
+        }
+    }
+
+    lookupMode.addEventListener('change', function () {
+        updateLookupHint();
+        // Re-trigger suggestions if there's text
+        if (modalInput.value.trim().length >= 2) {
+            modalInput.dispatchEvent(new Event('input'));
+        }
+    });
+
+    window.hideModal = function (e) {
+        if (e && e.target !== modalOverlay) return;
+        modalOverlay.classList.remove('active');
+        currentModalType = null;
+    };
+
+    window.modalSubmit = function () {
+        var val = modalInput.value.trim();
+        var type = currentModalType;
+        var mode = lookupMode.value;
+
+        if (type === 'pregame') {
+            // Single form submission - collect all fields
+            var industry = document.getElementById('pregameIndustry').value;
+            var productType = document.getElementById('pregameProductType').value;
+            var manufacturer = document.getElementById('pregameManufacturer').value;
+            var customer = document.getElementById('pregameCustomer').value.trim();
+            
+            if (!industry) {
+                alert('Please select an industry');
+                return;
+            }
+            
+            hideModal();
+            
+            // Build pregame message
+            var pregameParts = [];
+            pregameParts.push('industry ' + industry);
+            if (productType) pregameParts.push('product type ' + productType);
+            if (manufacturer) pregameParts.push('manufacturer ' + manufacturer);
+            if (customer) pregameParts.push('customer ' + customer);
+            
+            sendMessage('pregame ' + pregameParts.join(' | '));
+            resetPregameWizard();
+            return;
+        }
+
+        // For non-pregame types, require a value
+        if (!val) return;
+
+        hideModal();
+
+        switch (type) {
+            case 'lookup': doLookup(val, mode); break;
+            case 'chemical': doChemical(val); break;
+            case 'search': doSearch(val); break;
+            case 'manufacturer': sendMessage('manufacturer ' + val); break;
+            case 'supplier': sendMessage('supplier ' + val); break;
+            case 'product_type': sendMessage('product type ' + val); break;
+            case 'price': sendMessage('price ' + val); break;
+            case 'compare': sendMessage('compare ' + val); break;
+            case 'specs': sendMessage('specs ' + val); break;
+        }
+    };
+
+    // -- Search Filter Toggles --
+
+    // -- Typeahead / Autocomplete --
+    var suggestDropdown = document.getElementById('suggestDropdown');
+    var suggestTimer = null;
+    var suggestSelectedIndex = -1;
+    var suggestItems = [];
+
+    modalInput.addEventListener('input', function () {
+        if (currentModalType !== 'lookup') return;
+        var q = modalInput.value.trim();
+        clearTimeout(suggestTimer);
+        suggestSelectedIndex = -1;
+
+        if (q.length < 2) {
+            suggestDropdown.classList.remove('active');
+            suggestDropdown.innerHTML = '';
+            return;
+        }
+
+        // Debounce 250ms
+        suggestTimer = setTimeout(function () {
+            fetchSuggestions(q);
+        }, 250);
+    });
+
+    // Arrow keys + Enter in the suggest dropdown
+    // Industry dropdown auto-submit
+    document.getElementById('industrySelect').addEventListener('change', function() {
+        if (currentModalType === 'pregame' && pregameStep === 1) {
+            modalSubmit();
+        }
+    });
+
+    modalInput.addEventListener('keydown', function (e) {
+        if (currentModalType !== 'lookup') return;
+        if (!suggestDropdown.classList.contains('active')) return;
+
+        var items = suggestDropdown.querySelectorAll('.suggest-item');
+        if (!items.length) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            suggestSelectedIndex = Math.min(suggestSelectedIndex + 1, items.length - 1);
+            updateSuggestHighlight(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            suggestSelectedIndex = Math.max(suggestSelectedIndex - 1, -1);
+            updateSuggestHighlight(items);
+        } else if (e.key === 'Enter' && suggestSelectedIndex >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            selectSuggestion(suggestItems[suggestSelectedIndex]);
+        } else if (e.key === 'Escape') {
+            suggestDropdown.classList.remove('active');
+            suggestSelectedIndex = -1;
+        }
+    });
+
+    function updateSuggestHighlight(items) {
+        items.forEach(function (el, i) {
+            el.classList.toggle('selected', i === suggestSelectedIndex);
+        });
+        if (suggestSelectedIndex >= 0 && items[suggestSelectedIndex]) {
+            items[suggestSelectedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    async function fetchSuggestions(query) {
+        suggestDropdown.innerHTML = '<div class="suggest-loading">Searching...</div>';
+        suggestDropdown.classList.add('active');
+
+        try {
+            var mode = lookupMode.value || 'exact';
+            var stockFlt = document.getElementById('stockFilter') ? document.getElementById('stockFilter').value : 'all';
+            var res = await fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(query) + '&mode=' + mode + '&in_stock=' + stockFlt);
+            var data = await res.json();
+            suggestItems = data.suggestions || [];
+
+            if (suggestItems.length === 0) {
+                suggestDropdown.innerHTML = '<div class="suggest-loading">No matches found</div>';
+                return;
+            }
+
+            var html = '';
+            suggestItems.forEach(function (item, i) {
+                html += '<div class="suggest-item" data-index="' + i + '">';
+                html += '<div class="suggest-pn">' + esc(item.Part_Number || '') + '</div>';
+                html += '<div class="suggest-desc">' + esc(item.Description || '') + '</div>';
+                if (item.Manufacturer) {
+                    html += '<div class="suggest-mfr">' + esc(item.Manufacturer) + '</div>';
+                }
+                html += '</div>';
+            });
+            suggestDropdown.innerHTML = html;
+
+            // Click handlers
+            suggestDropdown.querySelectorAll('.suggest-item').forEach(function (el) {
+                el.addEventListener('click', function () {
+                    var idx = parseInt(el.dataset.index);
+                    selectSuggestion(suggestItems[idx]);
+                });
+            });
+        } catch (err) {
+            suggestDropdown.innerHTML = '<div class="suggest-loading">Search error</div>';
+            console.error('Suggest error:', err);
+        }
+    }
+
+    function selectSuggestion(item) {
+        if (!item) return;
+        suggestDropdown.classList.remove('active');
+        suggestDropdown.innerHTML = '';
+        suggestSelectedIndex = -1;
+        // Always do exact lookup when clicking a specific suggestion
+        var type = currentModalType;
+        hideModal();
+        doLookup(item.Part_Number, 'exact');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.modal-body')) {
+            suggestDropdown.classList.remove('active');
+            suggestSelectedIndex = -1;
+        }
+    });
+
+    // Clear dropdown when modal closes
+    var origHideModal = window.hideModal;
+    window.hideModal = function (e) {
+        suggestDropdown.classList.remove('active');
+        suggestDropdown.innerHTML = '';
+        suggestSelectedIndex = -1;
+        suggestItems = [];
+        origHideModal(e);
+    };
+
+    // -- Quick search from tags --
+    window.quickSearch = function (term) {
+        hideModal();
+        doSearch(term);
+    };
+
+    // -- Copy to clipboard (no email app) --
+    window.copyToClipboard = function (text, el) {
+        navigator.clipboard.writeText(text).then(function () {
+            // Show toast
+            var toast = document.createElement('div');
+            toast.className = 'copy-toast';
+            toast.textContent = 'Copied: ' + text;
+            document.body.appendChild(toast);
+            setTimeout(function () { toast.remove(); }, 2000);
+        }).catch(function () {
+            // Fallback for older browsers
+            var input = document.createElement('input');
+            input.value = text;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            var toast = document.createElement('div');
+            toast.className = 'copy-toast';
+            toast.textContent = 'Copied: ' + text;
+            document.body.appendChild(toast);
+            setTimeout(function () { toast.remove(); }, 2000);
+        });
+    };
+
+    // -- Print / Copy product card --
+    window.printCard = function (btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+        var printWin = window.open('', '_blank', 'width=500,height=600');
+        printWin.document.write('<html><head><title>Enpro Product</title>');
+        printWin.document.write('<style>body{font-family:system-ui,sans-serif;padding:20px;color:#333;}');
+        printWin.document.write('.product-card-header{background:#003366;color:white;padding:12px 16px;font-weight:700;font-size:16px;}');
+        printWin.document.write('.product-card-body{padding:14px 16px;}.product-field{display:flex;padding:6px 0;border-bottom:1px solid #eee;font-size:13px;}');
+        printWin.document.write('.product-field-label{font-weight:600;color:#666;min-width:130px;}.stock-section{margin-top:10px;padding-top:10px;border-top:2px solid #f5f5f5;}');
+        printWin.document.write('.stock-title{font-weight:600;font-size:13px;margin-bottom:6px;}.stock-row{display:flex;justify-content:space-between;padding:4px 8px;font-size:13px;}');
+        printWin.document.write('.product-price{margin-top:10px;padding:10px;background:#f5f5f5;border-radius:6px;font-weight:600;font-size:14px;}');
+        printWin.document.write('.product-footer{padding:10px 16px;background:#f5f5f5;font-size:11px;text-align:center;border-top:1px solid #ddd;margin-top:10px;}');
+        printWin.document.write('.card-actions{display:none;}.stock-qty{font-weight:700;}');
+        printWin.document.write('</style></head><body>');
+        printWin.document.write(card.outerHTML);
+        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Enpro Inc. | the office | check in with the office</div>');
+        printWin.document.write('</body></html>');
+        printWin.document.close();
+        printWin.print();
+    };
+
+    window.copyCard = function (btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+        // Extract text content from card, formatted cleanly
+        var header = card.querySelector('.product-card-header');
+        var fields = card.querySelectorAll('.product-field');
+        var price = card.querySelector('.product-price');
+        var stockRows = card.querySelectorAll('.stock-row');
+
+        var text = (header ? header.textContent.trim() : '') + '\n';
+        text += '-'.repeat(40) + '\n';
+        fields.forEach(function (f) {
+            var label = f.querySelector('.product-field-label');
+            var value = f.querySelector('.product-field-value');
+            if (label && value) {
+                text += label.textContent.trim() + ': ' + value.textContent.trim() + '\n';
+            }
+        });
+        if (price) text += 'Price: ' + price.textContent.trim() + '\n';
+        if (stockRows.length > 0) {
+            text += 'Stock: ';
+            stockRows.forEach(function (r) { text += r.textContent.trim().replace(/\s+/g, ' ') + ' | '; });
+            text = text.slice(0, -3) + '\n';
+        }
+        text += '-'.repeat(40) + '\n';
+        text += 'Enpro Inc. | the office | check in with the office\n';
+
+        copyToClipboard(text, btn);
+    };
+
+    // -- Admin Stats Tracking --
+    var adminStats = {
+        queries: 0,
+        cost: 0,
+        totalLatency: 0,
+        errors: 0,
+        reports: 0
+    };
+
+    function trackQuery(startTime, data) {
+        adminStats.queries++;
+        var latency = Date.now() - startTime;
+        adminStats.totalLatency += latency;
+
+        // Parse cost from response
+        var costStr = (data && data.cost) ? data.cost : '$0';
+        var costVal = parseFloat(costStr.replace(/[^0-9.]/g, '')) || 0;
+        adminStats.cost += costVal;
+
+        updateAdminFooter();
+    }
+
+    function trackError() {
+        adminStats.errors++;
+        updateAdminFooter();
+    }
+
+    function updateAdminFooter() {
+        var el = function(id) { return document.getElementById(id); };
+        el('statQueries').textContent = adminStats.queries;
+        el('statCost').textContent = '$' + adminStats.cost.toFixed(2);
+        var avg = adminStats.queries > 0 ? Math.round(adminStats.totalLatency / adminStats.queries) : 0;
+        el('statLatency').textContent = avg + 'ms';
+        el('statLatency').className = 'admin-value ' + (avg < 2000 ? 'good' : avg < 5000 ? '' : 'error');
+        el('statErrors').textContent = adminStats.errors;
+        el('statErrors').className = 'admin-value ' + (adminStats.errors > 0 ? 'error' : 'good');
+        el('statReports').textContent = adminStats.reports;
+        el('statReports').className = 'admin-value ' + (adminStats.reports > 0 ? 'error' : '');
+    }
+
+    // Report card to Peter
+    window.reportCard = function (btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+
+        var header = card.querySelector('.product-card-header');
+        var partNumber = header ? header.textContent.replace('Part Number: ', '').trim() : 'Unknown';
+
+        // Visual feedback
+        btn.textContent = '\u2713 Reported';
+        btn.style.pointerEvents = 'none';
+        btn.style.color = 'var(--stock-green)';
+
+        // Store the report
+        adminStats.reports++;
+        updateAdminFooter();
+
+        // Build report data
+        var reportData = {
+            part_number: partNumber,
+            timestamp: new Date().toISOString(),
+            session_id: sessionId,
+            card_html: card.outerHTML
+        };
+
+        // Save to localStorage for now (until backend endpoint exists)
+        var reports = JSON.parse(localStorage.getItem('enpro_reports') || '[]');
+        reports.push(reportData);
+        localStorage.setItem('enpro_reports', JSON.stringify(reports));
+
+        // Show toast
+        var toast = document.createElement('div');
+        toast.className = 'copy-toast';
+        toast.textContent = 'Reported: ' + partNumber + ' \u2014 flagged for Peter';
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.remove(); }, 2000);
+
+        console.log('REPORT:', reportData);
+    };
+
+    // -- Dark Mode Toggle --
+    window.toggleDarkMode = function () {
+        document.body.classList.toggle('dark-mode');
+        var isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('enpro_dark_mode', isDark ? 'true' : 'false');
+        document.getElementById('darkModeBtn').textContent = isDark ? '\u2600' : '\u263E';
+    };
+
+    // Restore dark mode preference
+    if (localStorage.getItem('enpro_dark_mode') === 'true') {
+        document.body.classList.add('dark-mode');
+        document.getElementById('darkModeBtn').textContent = '\u2600';
+    }
+
+    // -- Expose for inline onclick --
+    window.sendMessage = sendMessage;
+
+    // -- Load chemical names for dropdown --
+    (async function loadChemicals() {
+        try {
+            var res = await fetch(API_BASE + '/api/chemicals/list');
+            var data = await res.json();
+            var chemicals = data.chemicals || [];
+            var select = document.getElementById('chemicalSelect');
+            chemicals.forEach(function (chem) {
+                var opt = document.createElement('option');
+                opt.value = chem;
+                opt.textContent = chem;
+                select.appendChild(opt);
+            });
+            // When user picks from dropdown, fill the input and submit
+            select.addEventListener('change', function () {
+                if (select.value) {
+                    modalInput.value = select.value;
+                    modalSubmit();
+                }
+            });
+        } catch (err) {
+            console.error('Failed to load chemicals list:', err);
+        }
+    })();
+
+    // -- Load manufacturer names for dropdown --
+    (async function loadManufacturers() {
+        try {
+            var res = await fetch(API_BASE + '/api/manufacturers/list');
+            var data = await res.json();
+            var manufacturers = data.manufacturers || [];
+            var select = document.getElementById('manufacturerSelect');
+            manufacturers.forEach(function (mfr) {
+                var opt = document.createElement('option');
+                opt.value = mfr;
+                opt.textContent = mfr;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', function () {
+                if (select.value) {
+                    modalInput.value = select.value;
+                    modalSubmit();
+                }
+            });
+        } catch (err) {
+            console.error('Failed to load manufacturers list:', err);
+        }
+    })();
+
+    // -- Load product types for dropdown --
+    (async function loadProductTypes() {
+        try {
+            var res = await fetch(API_BASE + '/api/product-types/list');
+            var data = await res.json();
+            var types = data.product_types || [];
+            var select = document.getElementById('productTypeSelect');
+            types.forEach(function (t) {
+                var opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', function () {
+                if (select.value) {
+                    modalInput.value = select.value;
+                    modalSubmit();
+                }
+            });
+        } catch (err) {
+            console.error('Failed to load product types:', err);
+        }
+    })();
+
+    // -- Contextual Nav � fade inactive buttons on flow --
+    window.activateFlow = function (flowName) {
+        var btns = document.querySelectorAll('.qa-btn');
+        btns.forEach(function (btn) {
+            var btnText = btn.textContent.trim().toLowerCase();
+            if (btnText.includes(flowName.toLowerCase())) {
+                btn.classList.add('active-flow');
+            } else {
+                btn.classList.add('faded');
+            }
+        });
+        document.getElementById('exitFlowBtn').classList.add('visible');
+    };
+
+    window.exitFlow = function () {
+        var btns = document.querySelectorAll('.qa-btn');
+        btns.forEach(function (btn) {
+            btn.classList.remove('faded', 'active-flow');
+        });
+        document.getElementById('exitFlowBtn').classList.remove('visible');
+    };
+
+    // Hook into showModal to activate flow
+    var origShowModal = window.showModal;
+    window.showModal = function (type) {
+        // Override compare to use selector panel
+        if (type === 'compare') {
+            activateFlow('Compare');
+            openCompareSelector();
+            return;
+        }
+        var flowNames = {
+            'lookup': 'Lookup', 'chemical': 'Chemical', 'search': 'Search',
+            'compare': 'Compare', 'manufacturer': 'Manufacturer',
+            'product_type': 'Product Type', 'industry': 'Industry',
+            'price': 'Price'
+        };
+        if (flowNames[type]) activateFlow(flowNames[type]);
+        origShowModal(type);
+    };
+
+    // Exit flow on new chat
+    var origNewChat2 = window.newChat;
+    window.newChat = function () {
+        exitFlow();
+        origNewChat2();
+    };
+
+    // -- Wipe 7-day conversation memory + start fresh --
+    // Header "Start Fresh" button. Calls /api/chat/reset (which only works
+    // when DB-auth is configured), then runs newChat() to clear local UI
+    // state. Soft-fails: if /reset returns 503 (auth not configured), we
+    // still wipe local state so the button always feels responsive.
+    window.resetMemory = function () {
+        if (!confirm('Wipe your 7-day conversation memory and start fresh?')) return;
+        fetch(API_BASE + '/api/chat/reset', {
+            method: 'POST',
+            credentials: 'same-origin',
+        }).then(function (resp) {
+            return resp.ok ? resp.json() : { ok: false };
+        }).catch(function () {
+            return { ok: false };
+        }).then(function (data) {
+            window.newChat();
+            if (data && data.deleted) {
+                appendMessage('bot', 'Cleared ' + data.deleted + ' messages from your 7-day memory. Starting fresh.');
+            } else {
+                appendMessage('bot', 'Started a new conversation.');
+            }
+        });
+    };
+
+    // -- Sign-out --
+    // Calls /api/auth/logout to clear the server-side session cookie, then
+    // hard-redirects to /login.html. The global fetch wrapper will also kick
+    // any subsequent 401 back to login, so this is belt-and-suspenders.
+    window.signOut = function () {
+        fetch(API_BASE + '/api/auth/logout', {
+            method: 'POST',
+            credentials: 'same-origin',
+        }).catch(function () { /* best effort */ })
+          .then(function () {
+              try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+              window.location.replace('/login.html');
+          });
+    };
+
+    // -- User identity chip � populate from window.__FM_USER --
+    // The auth gate in index.html sets window.__FM_USER on /api/auth/me 200.
+    // If present, show the chip with first name + initials. If not (legacy
+    // mode, DB-auth not configured, or unauthenticated path), keep it hidden.
+    (function populateUserChip() {
+        var user = window.__FM_USER;
+        if (!user || !user.name) return;
+        var chip = document.getElementById('userChip');
+        var nameEl = document.getElementById('userChipName');
+        var initialsEl = document.getElementById('userChipInitials');
+        if (!chip || !nameEl || !initialsEl) return;
+
+        var fullName = String(user.name).trim();
+        var firstName = fullName.split(/\s+/)[0] || fullName;
+        var initials = fullName.split(/\s+/).slice(0, 2)
+            .map(function (s) { return s.charAt(0).toUpperCase(); })
+            .join('') || '?';
+
+        nameEl.textContent = firstName;
+        initialsEl.textContent = initials;
+        chip.title = fullName + (user.email ? ' (' + user.email + ')' : '');
+        chip.style.display = 'inline-flex';
+    })();
+
+    // -- Session History --
+    var SEARCH_HISTORY_KEY = 'enpro_fm_search_history';
+    var MAX_HISTORY = 30;
+
+    function trackSearch(query, intent) {
+        var history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+        history.unshift({
+            query: query,
+            intent: intent || 'unknown',
+            time: new Date().toISOString()
+        });
+        if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+        refreshHistorySidebar();
+    }
+
+    window.toggleHistorySidebar = function () {
+        var sidebar = document.getElementById('historySidebar');
+        sidebar.classList.toggle('open');
+        if (sidebar.classList.contains('open')) {
+            refreshHistorySidebar();
+        }
+    };
+
+    function refreshHistorySidebar() {
+        // Recent searches
+        var searchesEl = document.getElementById('historySearches');
+        var history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+
+        if (history.length === 0) {
+            searchesEl.innerHTML = '<div style="font-size:12px; color:var(--text-light); padding:6px 0;">No searches yet</div>';
+        } else {
+            var html = '';
+            history.slice(0, 15).forEach(function (h) {
+                var t = new Date(h.time);
+                var timeStr = t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0');
+                html += '<div class="history-item" onclick="sendMessage(\'' + esc(h.query).replace(/'/g, "\\'") + '\')">';
+                html += '<span class="history-item-query">' + esc(h.query) + '</span>';
+                html += '<span class="history-item-time">' + timeStr + '</span>';
+                html += '</div>';
+            });
+            searchesEl.innerHTML = html;
+        }
+
+        // Flagged reports
+        var reportsEl = document.getElementById('historyReports');
+        var reports = JSON.parse(localStorage.getItem('enpro_reports') || '[]');
+        if (reports.length === 0) {
+            reportsEl.innerHTML = '<div style="font-size:12px; color:var(--text-light); padding:6px 0;">No flagged reports</div>';
+        } else {
+            var rhtml = '';
+            reports.forEach(function (r) {
+                rhtml += '<div class="history-item">';
+                rhtml += '<span class="history-item-query" style="color:var(--stock-red);">' + esc(r.part_number || r.partNumber || '') + '</span>';
+                rhtml += '</div>';
+            });
+            reportsEl.innerHTML = rhtml;
+        }
+
+        // Session stats
+        var statsEl = document.getElementById('historyStats');
+        statsEl.innerHTML = '<div class="history-stat-row"><span class="history-stat-label">Queries</span><span class="history-stat-value">' + (adminStats ? adminStats.queries : 0) + '</span></div>'
+            + '<div class="history-stat-row"><span class="history-stat-label">Cost</span><span class="history-stat-value">$' + (adminStats ? adminStats.cost.toFixed(3) : '0.000') + '</span></div>'
+            + '<div class="history-stat-row"><span class="history-stat-label">Reports</span><span class="history-stat-value">' + reports.length + '</span></div>'
+            + '<div class="history-stat-row"><span class="history-stat-label">Session</span><span class="history-stat-value">' + (sessionId ? sessionId.substring(0, 8) : '�') + '</span></div>';
+    }
+
+    window.emailReports = function () {
+        var reports = JSON.parse(localStorage.getItem('enpro_reports') || '[]');
+        if (reports.length === 0) {
+            alert('No reports to email.');
+            return;
+        }
+
+        fetch(API_BASE + '/api/email-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                subject: 'Enpro FM Portal � Flagged Reports (' + reports.length + ')',
+                body: 'Reports flagged during session ' + (sessionId || 'unknown').substring(0, 8),
+                reports: reports
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status === 'sent') {
+                alert('Reports emailed successfully.');
+            } else if (data.status === 'queued') {
+                alert('SMTP not configured yet. Reports saved to server queue.');
+            } else {
+                alert('Email failed: ' + (data.detail || 'Unknown error'));
+            }
+        })
+        .catch(function () {
+            alert('Could not send email. Check connection.');
+        });
+    };
+
+    window.downloadTranscript = function () {
+        var messages = chatArea.querySelectorAll('.msg');
+        var lines = [];
+        messages.forEach(function (msg) {
+            var role = msg.classList.contains('user') ? 'USER' : 'BOT';
+            var bubble = msg.querySelector('.msg-bubble');
+            if (bubble) {
+                lines.push('[' + role + '] ' + bubble.textContent.trim());
+            }
+        });
+
+        var blob = new Blob([lines.join('\n\n')], { type: 'text/plain' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'enpro_session_' + (sessionId || 'unknown').substring(0, 8) + '.txt';
+        a.click();
+    };
+
+    window.clearHistory = function () {
+        if (confirm('Clear all search history?')) {
+            localStorage.removeItem(SEARCH_HISTORY_KEY);
+            refreshHistorySidebar();
+        }
+    };
+
+    // -- Quote Builder --
+    var quoteData = {
+        step: 0,
+        company: '',
+        contact_name: '',
+        contact_email: '',
+        contact_phone: '',
+        ship_to: '',
+        items: [],
+        notes: ''
+    };
+
+    window.openQuoteModal = async function () {
+        quoteData.step = 0;
+        await fetchQuoteState();
+        hydrateQuoteDataFromState();
+        document.getElementById('quoteModalOverlay').classList.add('active');
+        renderQuoteStep();
+    };
+
+    window.closeQuoteModal = function (e) {
+        if (e && e.target !== document.getElementById('quoteModalOverlay')) return;
+        document.getElementById('quoteModalOverlay').classList.remove('active');
+    };
+
+    function renderQuoteStep() {
+        var body = document.getElementById('quoteModalBody');
+        var prevBtn = document.getElementById('quotePrevBtn');
+        var nextBtn = document.getElementById('quoteNextBtn');
+        var titleEl = document.getElementById('quoteModalTitle');
+        quoteData.items = getCombinedQuoteItems();
+
+        var totalSteps = 3;
+
+        // Step dots
+        var dots = '<div class="quote-step-indicator">';
+        for (var i = 0; i < totalSteps; i++) {
+            var cls = i === quoteData.step ? 'active' : (i < quoteData.step ? 'done' : '');
+            dots += '<div class="quote-step-dot ' + cls + '"></div>';
+        }
+        dots += '</div>';
+
+        var html = dots;
+
+        if (quoteData.step === 0) {
+            titleEl.textContent = 'Customer Info';
+            prevBtn.style.display = 'none';
+            nextBtn.textContent = 'Next';
+
+            html += '<div class="quote-field"><label>Company Name</label><input type="text" id="qCompany" value="' + esc(quoteData.company) + '" placeholder="e.g., Acme Corp"></div>';
+            html += '<div class="quote-field"><label>Contact Name</label><input type="text" id="qName" value="' + esc(quoteData.contact_name) + '" placeholder="e.g., John Smith"></div>';
+            html += '<div class="quote-field"><label>Email</label><input type="email" id="qEmail" value="' + esc(quoteData.contact_email) + '" placeholder="john@acme.com"></div>';
+            html += '<div class="quote-field"><label>Phone</label><input type="tel" id="qPhone" value="' + esc(quoteData.contact_phone) + '" placeholder="(555) 123-4567"></div>';
+            html += '<div class="quote-field"><label>Ship-to Location</label><input type="text" id="qShipTo" value="' + esc(quoteData.ship_to) + '" placeholder="City, State"></div>';
+
+        } else if (quoteData.step === 1) {
+            titleEl.textContent = 'Quote Items';
+            prevBtn.style.display = '';
+            nextBtn.textContent = 'Next';
+
+            html += '<div id="quoteItemsList">';
+            if (quoteData.items.length === 0) {
+                html += '<div style="color:var(--text-light); font-size:13px; padding:8px 0;">No items captured yet. Keep talking or add a part number below.</div>';
+            } else {
+                quoteData.items.forEach(function (item, idx) {
+                    html += '<div class="quote-item-row">';
+                    html += '<span class="qi-pn">' + esc(item.part_number) + '</span>';
+                    html += '<span class="qi-desc">' + esc(item.description || '') + '</span>';
+                    html += '<span class="qi-qty"><input type="number" min="1" value="' + (item.quantity || 1) + '" onchange="updateQuoteItemQty(' + idx + ', this.value)"></span>';
+                    html += '<button class="quote-item-remove" onclick="removeQuoteItem(' + idx + ')">&times;</button>';
+                    html += '</div>';
+                });
+            }
+            html += '</div>';
+            html += '<div style="margin-top:10px; display:flex; gap:8px;">';
+            html += '<input type="text" id="qAddPart" placeholder="Part number..." style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px;">';
+            html += '<button class="quote-add-item" onclick="addQuoteItem()">+ Add</button>';
+            html += '</div>';
+            html += '<div class="quote-field" style="margin-top:14px;"><label>Notes</label><textarea id="qNotes" placeholder="Special instructions, quantities, etc.">' + esc(quoteData.notes) + '</textarea></div>';
+
+        } else if (quoteData.step === 2) {
+            titleEl.textContent = 'Review & Submit';
+            prevBtn.style.display = '';
+            nextBtn.textContent = 'Submit Quote';
+
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Company</div><div class="quote-summary-value">' + esc(quoteData.company || '�') + '</div></div>';
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Contact</div><div class="quote-summary-value">' + esc(quoteData.contact_name || '�') + ' &mdash; ' + esc(quoteData.contact_email || '') + ' ' + esc(quoteData.contact_phone || '') + '</div></div>';
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Ship To</div><div class="quote-summary-value">' + esc(quoteData.ship_to || '�') + '</div></div>';
+
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Items (' + quoteData.items.length + ')</div>';
+            if (quoteData.items.length) {
+                quoteData.items.forEach(function (item) {
+                    html += '<div style="font-size:13px; padding:4px 0;">' + esc(item.part_number) + ' � Qty: ' + (item.quantity || 1) + (item.price ? ' � ' + esc(item.price) : '') + '</div>';
+                });
+            } else {
+                html += '<div style="font-size:13px; color:var(--text-light);">No items</div>';
+            }
+            html += '</div>';
+
+            if (quoteData.notes) {
+                html += '<div class="quote-summary-section"><div class="quote-summary-label">Notes</div><div class="quote-summary-value">' + esc(quoteData.notes) + '</div></div>';
+            }
+        }
+
+        body.innerHTML = html;
+    }
+
+    window.quoteStep = function (dir) {
+        // Save current step data
+        if (quoteData.step === 0) {
+            var compEl = document.getElementById('qCompany');
+            if (compEl) quoteData.company = compEl.value.trim();
+            var nameEl = document.getElementById('qName');
+            if (nameEl) quoteData.contact_name = nameEl.value.trim();
+            var emailEl = document.getElementById('qEmail');
+            if (emailEl) quoteData.contact_email = emailEl.value.trim();
+            var phoneEl = document.getElementById('qPhone');
+            if (phoneEl) quoteData.contact_phone = phoneEl.value.trim();
+            var shipEl = document.getElementById('qShipTo');
+            if (shipEl) quoteData.ship_to = shipEl.value.trim();
+        } else if (quoteData.step === 1) {
+            var notesEl = document.getElementById('qNotes');
+            if (notesEl) quoteData.notes = notesEl.value.trim();
+        }
+
+        if (quoteData.step === 2 && dir === 1) {
+            // Submit
+            submitQuote();
+            return;
+        }
+
+        quoteData.step = Math.max(0, Math.min(2, quoteData.step + dir));
+        renderQuoteStep();
+    };
+
+    window.addQuoteItem = function () {
+        var input = document.getElementById('qAddPart');
+        if (!input || !input.value.trim()) return;
+        var pn = input.value.trim();
+
+        // Look up the part to get description and price
+        fetch(API_BASE + '/api/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ part_number: pn, session_id: sessionId })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var item = { part_number: pn, quantity: 1, description: '', price: '' };
+            if (data.found && data.product) {
+                item.description = data.product.Description || '';
+                item.price = data.product.Price || '';
+                item.part_number = data.product.Part_Number || pn;
+            }
+            quoteItems.push(item);
+            localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+            if (data.quote_state) syncQuoteState(data.quote_state);
+            hydrateQuoteDataFromState();
+            renderQuoteStep();
+        })
+        .catch(function () {
+            quoteItems.push({ part_number: pn, quantity: 1, description: '', price: '' });
+            localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+            hydrateQuoteDataFromState();
+            renderQuoteStep();
+        });
+    };
+
+    window.removeQuoteItem = function (idx) {
+        quoteData.items.splice(idx, 1);
+        quoteItems = quoteData.items.map(function (item) {
+            return {
+                part_number: item.part_number,
+                description: item.description || '',
+                price: item.price || '',
+                quantity: item.quantity || 1
+            };
+        });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        renderQuoteDrawer();
+        renderQuoteStep();
+    };
+
+    window.updateQuoteItemQty = function (idx, val) {
+        quoteData.items[idx].quantity = parseInt(val) || 1;
+        quoteItems = quoteData.items.map(function (item) {
+            return {
+                part_number: item.part_number,
+                description: item.description || '',
+                price: item.price || '',
+                quantity: item.quantity || 1
+            };
+        });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        renderQuoteDrawer();
+    };
+
+    function submitQuote() {
+        hydrateQuoteDataFromState();
+        fetch(API_BASE + '/api/quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                company: quoteData.company,
+                contact_name: quoteData.contact_name,
+                contact_email: quoteData.contact_email,
+                contact_phone: quoteData.contact_phone,
+                ship_to: quoteData.ship_to,
+                items: quoteData.items,
+                notes: quoteData.notes,
+                session_id: sessionId
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status === 'saved') {
+                closeQuoteModal();
+                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Contact: the office | check in with the office');
+                // Reset
+                quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
+                quoteItems = [];
+                localStorage.removeItem('enpro_quote_items');
+                renderQuoteDrawer();
+            } else {
+                alert('Quote save failed. Try again.');
+            }
+        })
+        .catch(function () {
+            alert('Could not save quote. Check connection.');
+        });
+    }
+
+    // -- Ask John � Route through KB expertise --
+    window.askJohn = function () {
+        var text = userInput.value.trim();
+
+        // If input has text, route it through John's KB
+        if (text) {
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            askJohnSend(text);
+            return;
+        }
+
+        // If no text, look for context from the last product card on screen
+        var cards = chatArea.querySelectorAll('.product-card');
+        if (cards.length > 0) {
+            var lastCard = cards[cards.length - 1];
+            var header = lastCard.querySelector('.product-card-header');
+            var partNumber = header ? header.textContent.replace('Part Number: ', '').trim() : '';
+            if (partNumber) {
+                askJohnSend('application advice for ' + partNumber);
+                return;
+            }
+        }
+
+        // No context � prompt user
+        appendMessage('bot', 'Type a question or look up a product first, then hit <strong>Ask John</strong> to get expert KB guidance.');
+    };
+
+    async function askJohnSend(text) {
+        if (isLoading) return;
+        clearWelcome();
+        appendMessage('user', '?? Ask John: ' + text);
+        setLoading(true);
+        var queryStart = Date.now();
+
+        try {
+            var res = await fetch(API_BASE + '/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text, session_id: sessionId, mode: 'ask_john' })
+            });
+            var data = await res.json();
+            handleResponse(data);
+            trackQuery(queryStart, data);
+            trackSearch('Ask John: ' + text, data.intent);
+        } catch (err) {
+            appendMessage('bot', 'Connection error. Please try again.');
+            trackError();
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // -- Two-Lane Workbench � Context Parser --
+    var sessionContext = {
+        fluid: null,
+        micron: null,
+        temperature: null,
+        flowRate: null,
+        pressure: null,
+        industry: null,
+        pinnedPart: null,
+        compared: false
+    };
+    
+    // Track products shown in chat for compare dropdowns
+    var productsHistory = [];
+
+    function parseAndUpdateContext(text) {
+        var lower = text.toLowerCase();
+
+        // Fluid detection
+        var fluids = ['hydraulic oil', 'lube oil', 'sulfuric acid', 'hydrochloric acid',
+            'acetic acid', 'acetone', 'water', 'glycol', 'amine', 'diesel', 'gasoline',
+            'steam', 'compressed air', 'natural gas', 'crude oil', 'kerosene',
+            'methanol', 'ethanol', 'caustic', 'bleach', 'brine'];
+        for (var i = 0; i < fluids.length; i++) {
+            if (lower.includes(fluids[i])) {
+                sessionContext.fluid = fluids[i].replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+                break;
+            }
+        }
+
+        // Micron
+        var micronMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:micron|�m|um)\b/);
+        if (micronMatch) sessionContext.micron = micronMatch[1] + ' \u03BCm';
+
+        // Temperature
+        var tempMatch = lower.match(/(\d{2,})\s*�?\s*(?:f|fahrenheit)/);
+        if (tempMatch) sessionContext.temperature = tempMatch[1] + '\u00B0F';
+        var tempC = lower.match(/(\d{2,})\s*�?\s*(?:c|celsius)/);
+        if (tempC) sessionContext.temperature = tempC[1] + '\u00B0C';
+
+        // Flow rate
+        var flowMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:gpm|lpm)/i);
+        if (flowMatch) sessionContext.flowRate = flowMatch[0].toUpperCase();
+
+        // Pressure
+        var psiMatch = lower.match(/(\d+)\s*(?:psi|bar)\b/i);
+        if (psiMatch) sessionContext.pressure = psiMatch[0].toUpperCase();
+
+        // Industry
+        var industries = {
+            'refinery': 'Refinery', 'pharmaceutical': 'Pharmaceutical', 'power plant': 'Power Plant',
+            'semiconductor': 'Semiconductor', 'brewery': 'Brewery', 'beverage': 'Beverage',
+            'dairy': 'Dairy', 'municipal': 'Municipal Water', 'chemical': 'Chemical Processing',
+            'mining': 'Mining', 'wastewater': 'Wastewater', 'petrochemical': 'Petrochemical',
+            'food': 'Food & Beverage', 'hydraulic': 'Hydraulic Systems', 'paint': 'Paint & Coatings'
+        };
+        for (var key in industries) {
+            if (lower.includes(key)) {
+                sessionContext.industry = industries[key];
+                break;
+            }
+        }
+
+        // Chemical (if asking about chemical compatibility)
+        if (lower.includes('chemical') || lower.includes('compatibility')) {
+            var chemNames = ['sulfuric acid', 'hydrochloric acid', 'acetone', 'methanol', 'ethanol',
+                'caustic soda', 'bleach', 'ammonia', 'nitric acid', 'phosphoric acid', 'acetic acid',
+                'toluene', 'xylene', 'mek', 'sodium hydroxide'];
+            for (var c = 0; c < chemNames.length; c++) {
+                if (lower.includes(chemNames[c])) {
+                    sessionContext.chemical = chemNames[c].replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+                    sessionContext.checkedChemical = true;
+                    break;
+                }
+            }
+        }
+
+        renderContextCard();
+    }
+
+    function renderContextCard() {
+        var fields = [
+            { id: 'ctxFluid', val: sessionContext.fluid },
+            { id: 'ctxMicron', val: sessionContext.micron },
+            { id: 'ctxTemp', val: sessionContext.temperature },
+            { id: 'ctxFlow', val: sessionContext.flowRate },
+            { id: 'ctxPSI', val: sessionContext.pressure }
+        ];
+
+        var filledCount = 0;
+        fields.forEach(function (f) {
+            var el = document.getElementById(f.id);
+            if (!el) return;
+            var valEl = el.querySelector('.ctx-value');
+            if (f.val) {
+                valEl.textContent = f.val;
+                valEl.className = 'ctx-value ctx-filled';
+                filledCount++;
+            } else {
+                valEl.textContent = '?';
+                valEl.className = 'ctx-value ctx-empty';
+            }
+        });
+
+        // Update spec count
+        var countEl = document.getElementById('ctxSpecCount');
+        if (countEl) countEl.textContent = filledCount + '/5';
+
+        // Show quote readiness only when product pinned or 3+ specs filled
+        var readinessEl = document.getElementById('ctxReadiness');
+        if (readinessEl) {
+            readinessEl.style.display = (sessionContext.pinnedPart || filledCount >= 3) ? '' : 'none';
+        }
+
+        // Update readiness steps
+        var specStep = document.getElementById('ctxStepSpecs');
+        if (specStep) {
+            if (filledCount >= 3) {
+                specStep.classList.add('done');
+                specStep.querySelector('.ctx-check').innerHTML = '&#10003;';
+            } else {
+                specStep.classList.remove('done');
+                specStep.querySelector('.ctx-check').innerHTML = '&#9675;';
+            }
+        }
+
+        var prodStep = document.getElementById('ctxStepProduct');
+        if (prodStep) {
+            if (sessionContext.pinnedPart) {
+                prodStep.classList.add('done');
+                prodStep.querySelector('.ctx-check').innerHTML = '&#10003;';
+            } else {
+                prodStep.classList.remove('done');
+                prodStep.querySelector('.ctx-check').innerHTML = '&#9675;';
+            }
+        }
+
+        var compStep = document.getElementById('ctxStepCompare');
+        if (compStep) {
+            if (sessionContext.compared) {
+                compStep.classList.add('done');
+                compStep.querySelector('.ctx-check').innerHTML = '&#10003;';
+            } else {
+                compStep.classList.remove('done');
+                compStep.querySelector('.ctx-check').innerHTML = '&#9675;';
+            }
+        }
+
+        // Auto-expand lane 1 if it was collapsed and we have context
+        if (filledCount > 0) {
+            var lane1 = document.getElementById('lane1');
+            if (lane1 && lane1.classList.contains('collapsed')) {
+                lane1.classList.remove('collapsed');
+            }
+        }
+    }
+
+    function updateContextFromProducts(products) {
+        if (!products || !products.length) return;
+        var p = products[0]; // Use first product's specs
+        if (p.Micron && !sessionContext.micron) sessionContext.micron = p.Micron + ' �m';
+        if (p.Max_Temp_F && !sessionContext.temperature) sessionContext.temperature = p.Max_Temp_F + '�F';
+        if (p.Max_PSI && !sessionContext.pressure) sessionContext.pressure = p.Max_PSI + ' PSI';
+        if (p.Flow_Rate && !sessionContext.flowRate) sessionContext.flowRate = String(p.Flow_Rate);
+        if (p.Media && !sessionContext.fluid && String(p.Media).toLowerCase() !== 'various') {
+            // Don't overwrite fluid with media � different concept
+        }
+        if (p.Product_Type && !sessionContext.industry) {
+            // Product type can hint at industry but don't overwrite
+        }
+        renderContextCard();
+    }
+
+    window.pinProduct = function (productData) {
+        sessionContext.pinnedPart = productData;
+        var el = document.getElementById('pinnedProduct');
+        if (el && typeof window.renderProductCard === 'function') {
+            el.innerHTML = '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; margin-bottom:6px;">Pinned Product</div>' + window.renderProductCard(productData);
+        }
+        renderContextCard();
+    };
+
+    window.clearContext = function () {
+        sessionContext = {
+            fluid: null, micron: null, temperature: null, flowRate: null,
+            pressure: null, industry: null, chemical: null, pinnedPart: null,
+            checkedChemical: false, compared: false
+        };
+        var el = document.getElementById('pinnedProduct');
+        if (el) el.innerHTML = '';
+        renderContextCard();
+    };
+
+    window.toggleLane1 = function () {
+        var lane1 = document.getElementById('lane1');
+        var btn = document.getElementById('lane1Toggle');
+        var expandTab = document.getElementById('lane1ExpandTab');
+        if (lane1) {
+            lane1.classList.toggle('collapsed');
+            var isCollapsed = lane1.classList.contains('collapsed');
+            if (btn) btn.innerHTML = isCollapsed ? '&#9654;' : '&#9664;';
+            if (expandTab) expandTab.classList.toggle('visible', isCollapsed);
+        }
+    };
+
+    // -- Quote Drawer (right side) --
+    var quoteItems = JSON.parse(localStorage.getItem('enpro_quote_items') || '[]');
+
+    window.toggleQuoteDrawer = function () {
+        var drawer = document.getElementById('quoteDrawer');
+        if (drawer) drawer.classList.toggle('open');
+    };
+
+    window.addToQuote = function (btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+        var header = card.querySelector('.product-card-header');
+        var pn = header ? header.textContent.replace('Part Number: ', '').trim() : '';
+        if (!pn) return;
+
+        // Check duplicate across manual and conversational quote items
+        if (getCombinedQuoteItems().some(function (q) { return q.part_number === pn; })) {
+            btn.textContent = 'Already added';
+            return;
+        }
+
+        var price = '';
+        var priceEl = card.querySelector('.product-price');
+        if (priceEl) price = priceEl.textContent.trim();
+
+        var desc = '';
+        var fields = card.querySelectorAll('.product-field');
+        fields.forEach(function (f) {
+            var label = f.querySelector('.product-field-label');
+            if (label && label.textContent.trim() === 'Description') {
+                desc = f.querySelector('.product-field-value').textContent.trim();
+            }
+        });
+
+        quoteItems.push({ part_number: pn, description: desc, price: price, quantity: 1 });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        renderQuoteDrawer();
+
+        btn.textContent = '? Added';
+        btn.style.color = 'var(--stock-green)';
+        btn.style.pointerEvents = 'none';
+    };
+
+    window.removeFromQuote = function (partNumber) {
+        quoteItems = quoteItems.filter(function (item) { return item.part_number !== partNumber; });
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        quoteData.items = getCombinedQuoteItems();
+        renderQuoteDrawer();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) renderQuoteStep();
+    };
+
+    window.updateQuoteQty = function (partNumber, val) {
+        var nextQty = parseInt(val) || 1;
+        var manualItem = quoteItems.find(function (item) { return item.part_number === partNumber; });
+        if (manualItem) {
+            manualItem.quantity = nextQty;
+        } else {
+            quoteItems.push({ part_number: partNumber, description: '', price: '', quantity: nextQty });
+        }
+        localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
+        quoteData.items = getCombinedQuoteItems();
+        if (document.getElementById('quoteModalOverlay').classList.contains('active')) renderQuoteStep();
+        renderQuoteDrawer();
+    };
+
+    function renderQuoteDrawer() {
+        var body = document.getElementById('quoteDrawerBody');
+        var countEl = document.getElementById('quoteItemCount');
+        var tabEl = document.getElementById('quoteTab');
+        var combinedItems = getCombinedQuoteItems();
+
+        if (!body) return;
+
+        if (combinedItems.length === 0) {
+            body.innerHTML = '<div class="quote-drawer-empty">Talk through the quote or click "Add to Quote" on any product card to start building.</div>';
+        } else {
+            var html = '';
+            combinedItems.forEach(function (item) {
+                html += '<div class="quote-drawer-item">';
+                html += '<div class="qdi-pn">' + esc(item.part_number) + '</div>';
+                html += '<div class="qdi-price">' + esc(item.price || '') + '</div>';
+                html += '<div class="qdi-qty"><input type="number" min="1" value="' + (item.quantity || 1) + '" onchange="updateQuoteQty(\'' + esc(item.part_number).replace(/'/g, "\\'") + '\', this.value)"></div>';
+                html += '<button class="qdi-remove" onclick="removeFromQuote(\'' + esc(item.part_number).replace(/'/g, "\\'") + '\')">&times;</button>';
+                html += '</div>';
+            });
+            body.innerHTML = html;
+        }
+
+        if (countEl) countEl.textContent = combinedItems.length;
+        if (tabEl) tabEl.innerHTML = '&#128221; Quote (' + combinedItems.length + ')';
+    }
+
+    // Render on load
+    renderQuoteDrawer();
+
+    window.pinCardProduct = function(btn) {
+        var card = btn.closest('.product-card');
+        if (!card) return;
+        var header = card.querySelector('.product-card-header');
+        var pn = header ? header.textContent.replace('Part Number: ', '').trim() : '';
+        // Extract fields from card DOM
+        var fields = card.querySelectorAll('.product-field');
+        var data = { Part_Number: pn };
+        fields.forEach(function(f) {
+            var label = f.querySelector('.product-field-label');
+            var value = f.querySelector('.product-field-value');
+            if (label && value) {
+                var key = label.textContent.trim();
+                if (key === 'Manufacturer') data.Final_Manufacturer = value.textContent.trim();
+                if (key === 'Description') data.Description = value.textContent.trim();
+                if (key === 'Product Type') data.Product_Type = value.textContent.trim();
+            }
+        });
+        var price = card.querySelector('.product-price');
+        if (price) data.Price = price.textContent.trim();
+        pinProduct(data);
+        btn.textContent = '\u2713 Pinned';
+        btn.style.color = 'var(--stock-green)';
+        btn.style.pointerEvents = 'none';
+    };
+
+    // -- Voice Agent (MediaRecorder ? Server STT ? Voice Search) --
+    var micBtn = document.getElementById('micBtn');
+    var isListening = false;
+    var voiceSynth = window.speechSynthesis;
+    var lastInteractionWasVoice = false;
+    var voiceMediaRecorder = null;
+    var voiceAudioChunks = [];
+
+    // Global search settings
+    window.searchSettings = {
+        inStockOnly: false
+    };
+    
+    // Check for voice commands (trigger modals, send, hang up, toggles)
+    function checkVoiceCommands(transcript) {
+        var lower = transcript.toLowerCase().trim();
+        
+        // Modal triggers
+        if (/^(look up|lookup)\s+(part|part number)/.test(lower)) {
+            showModal('lookup');
+            return true;
+        }
+        if (/^customer\s+(pre game|pregame|pre-game)/.test(lower)) {
+            showModal('pregame');
+            return true;
+        }
+        if (/^compare\s+(parts|products)/.test(lower)) {
+            openCompareSelector();
+            return true;
+        }
+
+        
+        // Filter toggles
+        if (/^(in stock|only in stock|show in stock)$/.test(lower)) {
+            appendMessage('bot', '<em>Filter set: In Stock only</em>');
+            return true;
+        }
+        if (/^(all stock|show all|any stock)$/.test(lower)) {
+            appendMessage('bot', '<em>Filter set: All products</em>');
+            return true;
+        }
+        
+        // Send command - works like clicking the send button
+        if (/^send$|^send it$|^submit$/.test(lower)) {
+            stopListening(); // Stop mic first
+            var input = document.getElementById('userInput');
+            if (input && input.value.trim()) {
+                var text = input.value.trim();
+                input.value = '';
+                // Small delay to let mic stop
+                setTimeout(function() {
+                    sendMessage(text);
+                }, 100);
+            }
+            return true;
+        }
+        
+        // Hang up - cancels mic, clears input, no message sent
+        if (/^hang up$|^cancel$|^clear$|^never mind$|^nevermind$/.test(lower)) {
+            stopListening(); // Stop mic immediately
+            var input = document.getElementById('userInput');
+            if (input) input.value = '';
+            // Don't show any message, just silently cancel
+            return true;
+        }
+        
+        return false; // Not a command, process normally
+    }
+
+    // Single-flight guard for voice transcription requests. Without this,
+    // rapid mic clicks queue parallel /api/voice-search posts and rack up
+    // Whisper 429s. window.__fmVoiceBusy is set true the moment a recording
+    // is being uploaded, cleared when the response (or error) comes back.
+    window.__fmVoiceBusy = false;
+
+    window.toggleVoice = function () {
+        if (window.__fmVoiceBusy) {
+            // Already processing a previous capture � ignore the click instead
+            // of stacking another in-flight request.
+            return;
+        }
+        if (isListening) {
+            stopListening();
+        } else {
+            startListening();
+        }
+    };
+
+    async function startListening() {
+        try {
+            var stream = await navigator.mediaDevices.getUserMedia({
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
+            });
+            voiceAudioChunks = [];
+            var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            voiceMediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+
+            voiceMediaRecorder.ondataavailable = function (e) {
+                if (e.data.size > 0) voiceAudioChunks.push(e.data);
+            };
+
+            voiceMediaRecorder.onstop = async function () {
+                stream.getTracks().forEach(function (t) { t.stop(); });
+                if (voiceAudioChunks.length === 0) { return; }
+
+                var blob = new Blob(voiceAudioChunks, { type: voiceMediaRecorder.mimeType });
+                voiceAudioChunks = [];
+
+                // Empty / silent capture guard: a typical webm audio frame is
+                // ~3KB+ even for a fraction of a second. Anything smaller is
+                // either nothing recorded or a near-silent click. Drop it
+                // before burning a Whisper call.
+                if (blob.size < 2048) {
+                    userInput.placeholder = 'Ask about a part, chemical, or product...';
+                    appendMessage('bot', "I didn't catch any audio � try holding the mic and speaking clearly.");
+                    return;
+                }
+
+                // Show processing state and acquire the single-flight token
+                window.__fmVoiceBusy = true;
+                lastInteractionWasVoice = true;
+                userInput.placeholder = 'Processing voice...';
+                appendMessage('user', '?? Voice search...');
+
+                try {
+                    var formData = new FormData();
+                    formData.append('file', blob, 'recording.webm');
+                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: formData });
+
+                    if (!resp.ok) {
+                        // Branch on status code so we can give a useful message
+                        // instead of "Voice search failed" for everything.
+                        if (resp.status === 429) {
+                            appendMessage('bot', 'Whisper is busy right now � give it a sec and try again.');
+                        } else if (resp.status === 400) {
+                            appendMessage('bot', "I couldn't make out the audio � try again, a little louder.");
+                        } else if (resp.status >= 500) {
+                            appendMessage('bot', 'Voice service is having a moment. Try again in a few seconds, or type it instead.');
+                        } else {
+                            appendMessage('bot', 'Voice search failed. Try again or type your query.');
+                        }
+                        userInput.placeholder = 'Ask about a part, chemical, or product...';
+                        return;
+                    }
+
+                    var data = await resp.json();
+
+                    // Check for voice commands (no longer show "I heard" - removed for cleaner UX)
+                    if (data.transcript) {
+                        var voiceCmd = checkVoiceCommands(data.transcript);
+                        if (voiceCmd) {
+                            // Command handled, stop processing
+                            return;
+                        }
+                    }
+
+                    // Show confidence suggestions only when we are at/above the 90% gate.
+                    if (data.suggestions && data.suggestions.length > 0) {
+                        var strongSuggestions = data.suggestions.filter(function (s) {
+                            return (s.confidence || 0) >= 0.90;
+                        });
+
+                        if (strongSuggestions.length > 0) {
+                            var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
+                            sugHtml += '<strong>Did you mean?</strong><br>';
+                            strongSuggestions.forEach(function (s) {
+                                sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
+                                sugHtml += '"' + esc(String(s.original)) + '" ? <strong>' + esc(String(s.resolved)) + '</strong>';
+                                sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
+                            });
+                            sugHtml += '</div>';
+                            appendMessage('bot', sugHtml);
+                        } else {
+                            var question = 'What did you want in inventory? Please repeat it more clearly.';
+                            appendCard(renderVoiceClarifyCard(question, ''));
+                        }
+                    }
+
+                    // Render product results using existing card renderer
+                    if (data.results && data.results.length > 0) {
+                        // New conversational layout (V2.6+):
+                        // 1. If the backend returned ranked recommendations
+                        //    with reasoning (Phase 2 GPT re-rank), show those
+                        //    FIRST as "the strongest fits" with the reason
+                        //    woven into the product card.
+                        // 2. Show remaining results below as "other options"
+                        //    so the rep can still scan more if they want.
+                        // 3. Drop the raw "1515 products found" header � that's
+                        //    the data dump Andrew called out as the core failure.
+                        renderVoiceResponse(data);
+                    } else {
+                        appendCard(renderVoiceFallbackCard(data.transcript || '', data));
+                    }
+
+                } catch (err) {
+                    console.error('Voice search error:', err);
+                    appendMessage('bot', 'Voice search failed. Try typing instead.');
+                } finally {
+                    // Always release the single-flight lock so the next mic
+                    // tap works even if the previous one threw.
+                    window.__fmVoiceBusy = false;
+                }
+
+                userInput.placeholder = 'Ask about a part, chemical, or product...';
+            };
+
+            voiceMediaRecorder.start();
+            isListening = true;
+            micBtn.classList.add('listening');
+            var micStatus = document.getElementById('micStatus');
+            if (micStatus) micStatus.style.display = 'block';
+            userInput.placeholder = 'Listening... tap mic to stop'
+        } catch (err) {
+            console.error('Mic access error:', err);
+            appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
+        }
+    }
+
+    function stopListening() {
+        isListening = false;
+        micBtn.classList.remove('listening');
+        var micStatus = document.getElementById('micStatus');
+        if (micStatus) micStatus.style.display = 'none';
+        userInput.placeholder = 'Ask about a part, chemical, or product...';
+        if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
+            voiceMediaRecorder.stop();
+        }
+    }
+
+    // Text-to-Speech � read bot responses aloud
+    function speakResponse(text) {
+        if (!voiceSynth || !text) return;
+        voiceSynth.cancel();
+
+        var clean = text
+            .replace(/\*\*/g, '')
+            .replace(/\[V25 FILTERS\]/g, '')
+            .replace(/\[NO PRICE\]/g, 'no price available')
+            .replace(/\[NOT IN DATA\]/g, 'not in data')
+            .replace(/#{1,3}\s/g, '')
+            .replace(/\n/g, '. ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        if (clean.length > 500) {
+            clean = clean.substring(0, 500) + '. See results above for full details.';
+        }
+
+        var utterance = new SpeechSynthesisUtterance(clean);
+        utterance.lang = 'en-US';
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+
+        var voices = voiceSynth.getVoices();
+        var preferred = voices.find(function (v) {
+            return v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira');
+        });
+        if (preferred) utterance.voice = preferred;
+
+        voiceSynth.speak(utterance);
+    }
+
+    // Hook: speak bot response when voice was used
+    var origAppendMessage = appendMessage;
+    appendMessage = function (role, html) {
+        origAppendMessage(role, html);
+        if (role === 'bot' && lastInteractionWasVoice) {
+            var plainText = html.replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').trim();
+            speakResponse(plainText);
+            lastInteractionWasVoice = false;
+        }
+    };
+
+    // Preload voices (Chrome needs this)
+    if (voiceSynth) {
+        voiceSynth.getVoices();
+        if (voiceSynth.onvoiceschanged !== undefined) {
+            voiceSynth.onvoiceschanged = function () { voiceSynth.getVoices(); };
+        }
+    }
+
+    // -- Simulate Mode � In-App Live Demo --
+    // Demo scenarios � grouped as FLOWS (3-4 chained commands per flow, no reset between)
+    var SIM_SCENARIOS = [
+        // FLOW 1: Full rep workflow � lookup ? pin ? chemical ? compare
+        { label: 'Part Lookup', query: '2004355', pause: 5000, flow: 1, autoPin: true,
+          narration: 'Flow 1: Rep has a part number. Look it up, pin it, explore.' },
+        { label: 'Chemical Check', query: 'chemical compatibility of sulfuric acid', pause: 7000, flow: 1,
+          narration: 'Check chemical compatibility. A/B/C/D ratings for every material.' },
+        { label: 'Find Alternative', query: 'CMBF1-30NN', pause: 5000, flow: 1,
+          narration: 'Customer wants options. Pull up an alternative.' },
+        { label: 'Compare Side-by-Side', query: 'compare 2004355 vs CMBF1-30NN', pause: 7000, flow: 1,
+          narration: 'Side-by-side comparison. Real specs, real prices, real stock.' },
+
+        // FLOW 2: Application branch ? products ? manufacturer
+        { label: 'Brewery Branch', query: 'application brewery', pause: 7000, flow: 2,
+          narration: 'Flow 2: Rep has a brewery call. Branch into application guidance.' },
+        { label: 'Find Depth Sheets', query: 'search depth sheet', pause: 5000, flow: 2,
+          narration: 'Prep says depth sheets. Search to find what is in stock.' },
+        { label: 'Browse Filtrox', query: 'manufacturer Filtrox', pause: 5000, flow: 2,
+          narration: 'Filtrox is the depth sheet brand. Browse their full catalog.' },
+        { label: 'Check Acetone', query: 'chemical compatibility of acetone', pause: 7000, flow: 2,
+          narration: 'Customer uses acetone for cleaning. Check compatibility fast.' },
+
+        // FLOW 3: Natural language ? context fills ? expert
+        { label: 'Describe the Need', query: 'I need a 10 micron polypropylene filter for hydraulic oil at 200F in a refinery', pause: 8000, flow: 3,
+          narration: 'Flow 3: Customer describes what they need. Watch the context card fill.' },
+        { label: 'Expert Advice', query: 'what filter for glycol dehydration in a gas plant', pause: 8000, flow: 3,
+          narration: 'Ask the expert. 30 years of application knowledge, KB-backed.' },
+
+        // FLOW 4: Safety + manufacturer browse
+        { label: 'Browse PPC', query: 'manufacturer PPC', pause: 5000, flow: 4,
+          narration: 'Flow 4: Browse a major manufacturer. See their full product line.' },
+        { label: 'Safety Check', query: 'I need a filter for 500F hydrogen service', pause: 5000, flow: 4,
+          narration: 'Safety guardrails. Dangerous conditions auto-escalate. No bad recommendations.' },
+    ];
+
+    var simState = { running: false, paused: false, step: 0, abortFlag: false };
+
+    window.startSimulate = function () {
+        if (simState.running) return;
+        simState = { running: true, paused: false, step: 0, abortFlag: false };
+
+        // Reset chat
+        if (typeof newChat === 'function') newChat();
+
+        // Create sim bar
+        var bar = document.createElement('div');
+        bar.className = 'sim-bar';
+        bar.id = 'simBar';
+        bar.innerHTML = '<div class="sim-bar-title">&#9654; LIVE DEMO</div>' +
+            '<div class="sim-bar-step" id="simStep">Starting...</div>' +
+            '<div class="sim-bar-progress"><div class="sim-bar-fill" id="simFill" style="width:0%"></div></div>' +
+            '<div class="sim-bar-btns">' +
+                '<button class="sim-bar-btn" id="simPauseBtn" onclick="simPause()">Pause</button>' +
+                '<button class="sim-bar-btn" onclick="simSkip()">Skip</button>' +
+                '<button class="sim-bar-btn" onclick="simExit()">Exit</button>' +
+            '</div>';
+        document.body.appendChild(bar);
+
+        var narr = document.createElement('div');
+        narr.className = 'sim-narration';
+        narr.id = 'simNarration';
+        narr.textContent = 'Watch how your team can find products, check compatibility, and prepare for calls in seconds.';
+        document.body.appendChild(narr);
+
+        // Offset content
+        document.querySelector('.app-shell').style.marginTop = '90px';
+
+        simSleep(3000).then(function () { runSimStep(0); });
+    };
+
+    function simSleep(ms) {
+        return new Promise(function (resolve) {
+            var start = Date.now();
+            function check() {
+                if (simState.abortFlag) { resolve(); return; }
+                if (simState.paused) { setTimeout(check, 100); return; }
+                if (Date.now() - start >= ms) { resolve(); return; }
+                setTimeout(check, 50);
+            }
+            check();
+        });
+    }
+
+    async function runSimStep(idx) {
+        if (idx >= SIM_SCENARIOS.length || simState.abortFlag) {
+            simFinish();
+            return;
+        }
+
+        simState.step = idx;
+        var scenario = SIM_SCENARIOS[idx];
+
+        // Update bar
+        var stepEl = document.getElementById('simStep');
+        var fillEl = document.getElementById('simFill');
+        var narrEl = document.getElementById('simNarration');
+        if (stepEl) stepEl.textContent = 'Step ' + (idx + 1) + ' of ' + SIM_SCENARIOS.length + ': ' + scenario.label;
+        if (fillEl) fillEl.style.width = ((idx / SIM_SCENARIOS.length) * 100) + '%';
+        if (narrEl) narrEl.textContent = scenario.narration;
+
+        // New chat only between FLOWS (not between chained steps within a flow)
+        var prevFlow = idx > 0 ? SIM_SCENARIOS[idx - 1].flow : 0;
+        if (idx > 0 && scenario.flow !== prevFlow && typeof newChat === 'function') newChat();
+        await simSleep(500);
+        if (simState.abortFlag) return;
+
+        // Type query character by character
+        userInput.value = '';
+        userInput.focus();
+        for (var i = 0; i < scenario.query.length; i++) {
+            if (simState.abortFlag) return;
+            await simSleep(50);
+            userInput.value = scenario.query.substring(0, i + 1);
+        }
+
+        await simSleep(400);
+        if (simState.abortFlag) return;
+
+        // Submit
+        handleSend();
+
+        // Wait for response
+        await simWaitForResponse();
+        if (simState.abortFlag) return;
+
+        // Update progress
+        if (fillEl) fillEl.style.width = (((idx + 1) / SIM_SCENARIOS.length) * 100) + '%';
+
+        // Scroll to see results
+        scrollToBottom();
+
+        // Auto-pin after first lookup in each flow (shows Lane 1 in action)
+        if (scenario.autoPin) {
+            await simSleep(1500);
+            var pinBtns = document.querySelectorAll('.card-action-btn');
+            for (var pb = 0; pb < pinBtns.length; pb++) {
+                if (pinBtns[pb].textContent.includes('Pin')) {
+                    pinBtns[pb].click();
+                    var narrEl2 = document.getElementById('simNarration');
+                    if (narrEl2) narrEl2.textContent = 'Product pinned to Lane 1. Context builds as the conversation continues.';
+                    break;
+                }
+            }
+        }
+
+        // Pause for reading
+        await simSleep(scenario.pause);
+        if (simState.abortFlag) return;
+
+        // Next step
+        runSimStep(idx + 1);
+    }
+
+    function simWaitForResponse() {
+        return new Promise(function (resolve) {
+            var checks = 0;
+            function poll() {
+                if (simState.abortFlag) { resolve(); return; }
+                if (!isLoading) { resolve(); return; }
+                checks++;
+                if (checks > 300) { resolve(); return; } // 30s timeout
+                setTimeout(poll, 100);
+            }
+            setTimeout(poll, 500); // Give it a moment to start loading
+        });
+    }
+
+    function simFinish() {
+        simState.running = false;
+        var fillEl = document.getElementById('simFill');
+        if (fillEl) fillEl.style.width = '100%';
+        var stepEl = document.getElementById('simStep');
+        if (stepEl) stepEl.textContent = 'Demo Complete';
+        var narrEl = document.getElementById('simNarration');
+        if (narrEl) narrEl.textContent = '72,904 products. Real-time inventory. $0.02 per query. Ready for your team.';
+
+        setTimeout(function () { simExit(); }, 5000);
+    }
+
+    window.simPause = function () {
+        simState.paused = !simState.paused;
+        var btn = document.getElementById('simPauseBtn');
+        if (btn) btn.textContent = simState.paused ? 'Resume' : 'Pause';
+    };
+
+    window.simSkip = function () {
+        if (simState.running && simState.step < SIM_SCENARIOS.length - 1) {
+            simState.paused = false;
+            simState.abortFlag = true;
+            setTimeout(function () {
+                simState.abortFlag = false;
+                runSimStep(simState.step + 1);
+            }, 100);
+        }
+    };
+
+    window.simExit = function () {
+        simState.abortFlag = true;
+        simState.running = false;
+        simState.paused = false;
+        var bar = document.getElementById('simBar');
+        if (bar) bar.remove();
+        var narr = document.getElementById('simNarration');
+        if (narr) narr.remove();
+        document.querySelector('.app-shell').style.marginTop = '';
+    };
+
+    // Handle /simulate command in chat
+    var origHandleSend = window.handleSend;
+    window.handleSend = function () {
+        var text = userInput.value.trim().toLowerCase();
+        if (text === '/simulate' || text === 'simulate') {
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            startSimulate();
+            return;
+        }
+        origHandleSend();
+    };
+
+    // URL param auto-start: ?simulate=true
+    if (new URLSearchParams(window.location.search).get('simulate') === 'true') {
+        setTimeout(startSimulate, 2000);
+    }
+
+})();
+
