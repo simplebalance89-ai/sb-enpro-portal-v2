@@ -1,6 +1,6 @@
-/* --------------------------------------------------------------
-   Enpro Filtration Mastermind � Frontend App
-   -------------------------------------------------------------- */
+﻿/* ══════════════════════════════════════════════════════════════
+   Enpro Filtration Mastermind — Frontend App
+   ══════════════════════════════════════════════════════════════ */
 
 (function () {
     'use strict';
@@ -26,17 +26,17 @@
         document.head.appendChild(style);
     })();
 
-    // -- Config --
+    // ── Config ──
     const API_BASE = window.ENPRO_API_BASE || '';
     const SESSION_KEY = 'enpro_fm_session';
     const HISTORY_KEY = 'enpro_fm_history';
 
-    // -- Global 401 handler --
+    // ── Global 401 handler ──
     // Wrap window.fetch once. Any non-auth-probe response with status 401 means
-    // the user's session expired or never existed � kick them to /login.html
+    // the user's session expired or never existed — kick them to /login.html
     // instead of surfacing a misleading "search failed" toast. Whitelisted:
-    //   /api/auth/me    � the gate probe (would loop)
-    //   /api/auth/login � bad PIN responses must reach the login UI
+    //   /api/auth/me    — the gate probe (would loop)
+    //   /api/auth/login — bad PIN responses must reach the login UI
     // Single-flight guard via window.__fmRedirecting prevents a 401 storm
     // from multiple in-flight requests calling location.replace() in parallel.
     (function installAuthRedirect() {
@@ -68,7 +68,7 @@
         };
     })();
 
-    // -- State --
+    // ── State ──
     // Bind session to the logged-in user when available so the 7-day memory
     // layer stays consistent across tabs/refreshes for that user. Auth gate in
     // index.html sets window.__FM_USER before app.js loads. Falls back to a
@@ -94,7 +94,7 @@
                         from_session_id: legacySessionId,
                         to_session_id: sessionId
                     })
-                }).catch(function () { /* best effort � soft fail */ });
+                }).catch(function () { /* best effort — soft fail */ });
             }, 200);
         }
         // Pin localStorage to the user-bound id so future page loads skip
@@ -111,7 +111,7 @@
     let isLoading = false;
     let searchCount = 0;      // Track searches for auto-reset
 
-    // -- Autocomplete suggestions --
+    // ── Autocomplete suggestions ──
     var AUTOCOMPLETE_ITEMS = [
         // Product Types
         {text: 'search filter cartridge', label: 'Filter Cartridge', type: 'Product'},
@@ -144,7 +144,7 @@
         {text: 'manufacturer Lechler', label: 'Lechler', type: 'Manufacturer'},
     ];
 
-    // -- DOM refs --
+    // ── DOM refs ──
     const chatArea = document.getElementById('chatArea');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
@@ -157,7 +157,7 @@
 
     let currentModalType = null;
 
-    // -- UUID fallback --
+    // ── UUID fallback ──
     function uuidFallback() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
             var r = Math.random() * 16 | 0;
@@ -165,7 +165,7 @@
         });
     }
 
-    // -- Time formatting --
+    // ── Time formatting ──
     function timeStr() {
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
@@ -180,7 +180,7 @@
             .replace(/\bgraver\b/gi, 'Graver')
             .replace(/\bppc\b/gi, 'PPC')
             .replace(/\bflow\s*serve\b/gi, 'Flowserve')
-            .replace(/[��]/g, '"')
+            .replace(/[“”]/g, '"')
             .replace(/[\u2018\u2019]/g, "'");
 
         normalized = normalized
@@ -363,7 +363,7 @@
                 html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:6px;">Normalization hints</div>';
                 strongHints.forEach(function (s) {
                     html += '<div style="font-size:13px; margin-bottom:4px; color:var(--text);">';
-                    html += esc(String(s.field || 'field')) + ': "' + esc(String(s.original || '')) + '" ? <strong>' + esc(String(s.resolved || '')) + '</strong>';
+                    html += esc(String(s.field || 'field')) + ': "' + esc(String(s.original || '')) + '" → <strong>' + esc(String(s.resolved || '')) + '</strong>';
                     html += '</div>';
                 });
                 html += '</div>';
@@ -391,7 +391,7 @@
         return html;
     }
 
-    // -- Auto-grow textarea --
+    // ── Auto-grow textarea ──
     window.autoGrow = function (el) {
         el.style.height = 'auto';
         el.style.height = Math.min(el.scrollHeight, 100) + 'px';
@@ -401,7 +401,7 @@
         if (userInput) userInput.focus();
     };
 
-    // -- Keyboard handling --
+    // ── Keyboard handling ──
     window.handleKeyDown = function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -409,7 +409,7 @@
         }
     };
 
-    // -- Autocomplete --
+    // ── Autocomplete ──
     var acDropdown = null;
 
     function showAutocomplete(query) {
@@ -463,7 +463,7 @@
         setTimeout(hideAutocomplete, 200);
     });
 
-    // -- Send handler --
+    // ── Send handler ──
     window.handleSend = function () {
         const text = userInput.value.trim();
         if (!text || isLoading) return;
@@ -483,8 +483,8 @@
         sendMessage(text);
     };
 
-    // -- Core: sendMessage --
-    // -- SSE streaming chat consumer (V2.11) --
+    // ── Core: sendMessage ──
+    // ── SSE streaming chat consumer (V2.11) ──
     // POSTs to /api/chat/stream and progressively renders the response as
     // it arrives. Each event from the server triggers an inline render so
     // the headline appears instantly, picks build one at a time, and the
@@ -621,7 +621,7 @@
                         'background:#eef4ff;border-left:3px solid #0066CC;' +
                         'padding:10px 14px;margin:6px 0 0 0;border-radius:6px 6px 0 0;' +
                         'font-size:14px;line-height:1.5;color:#0a1628;">' +
-                        '<strong>' + esc(pn) + '</strong> � ' + esc(reason) +
+                        '<strong>' + esc(pn) + '</strong> — ' + esc(reason) +
                         '</div>'
                     );
                 }
@@ -664,7 +664,7 @@
             case 'error':
                 var msg = data.error || 'Connection error.';
                 if (data.status === 401) {
-                    // Auth gate � redirect to login
+                    // Auth gate — redirect to login
                     window.location.replace('/login.html');
                     return;
                 }
@@ -672,7 +672,7 @@
                 break;
 
             default:
-                // Unknown event � ignore
+                // Unknown event — ignore
                 break;
         }
     }
@@ -725,7 +725,7 @@
         }
     };
 
-    // -- Direct lookup --
+    // ── Direct lookup ──
     window.doLookup = async function (partNumber, mode) {
         if (isLoading) return;
         mode = mode || 'exact';
@@ -746,7 +746,7 @@
                 var data = await res.json();
                 handleResponse(data);
             } else {
-                // Starts-with or contains � use suggest to get matches, then show as search results
+                // Starts-with or contains — use suggest to get matches, then show as search results
                 var stockVal = document.getElementById('stockFilter') ? document.getElementById('stockFilter').value : 'all';
                 var res = await fetch(API_BASE + '/api/suggest?q=' + encodeURIComponent(partNumber) + '&mode=' + mode + '&in_stock=' + stockVal);
                 var data = await res.json();
@@ -767,10 +767,10 @@
         }
     };
 
-    // Show suggestions as a consolidated list card � click any row to expand
+    // Show suggestions as a consolidated list card — click any row to expand
     async function loadProductsStaggered(suggestions) {
         if (suggestions.length === 1) {
-            // Single result � fetch full product card
+            // Single result — fetch full product card
             try {
                 var res = await fetch(API_BASE + '/api/lookup', {
                     method: 'POST',
@@ -786,7 +786,7 @@
                 console.error('Product fetch error:', err);
             }
         } else {
-            // Multiple � show consolidated card, click to expand
+            // Multiple — show consolidated card, click to expand
             appendCard(renderConsolidatedCard(
                 suggestions.map(function (s) {
                     return {
@@ -799,7 +799,7 @@
         }
     }
 
-    // -- Search --
+    // ── Search ──
     window.doSearch = async function (query) {
         if (isLoading) return;
 
@@ -823,7 +823,7 @@
         }
     };
 
-    // -- Chemical check --
+    // ── Chemical check ──
     window.doChemical = async function (chemical) {
         if (isLoading) return;
 
@@ -847,7 +847,7 @@
         }
     };
 
-    // -- Response handler --
+    // ── Response handler ──
     async function handleResponse(data) {
         if (!data) {
             appendMessage('bot', 'No response received.');
@@ -864,7 +864,7 @@
             renderContextCard();
         }
 
-        // -- V2.10 Structured response rendering --
+        // ── V2.10 Structured response rendering ──
         // When the backend returns the new structured shape (headline + picks
         // + follow_up + body) from _handle_gpt's JSON parser, render it as a
         // scannable card layout: bold headline first, then ranked picks each
@@ -879,7 +879,7 @@
             return;
         }
 
-        // Chemical intent � parse GPT text into structured card
+        // Chemical intent — parse GPT text into structured card
         if (data.intent === 'chemical' && data.response && !data.chemical) {
             var parsed = parseChemicalResponse(data.response);
             if (parsed) {
@@ -898,7 +898,7 @@
             }
         }
 
-        // Application intent � render as plain guidance and any returned products
+        // Application intent — render as plain guidance and any returned products
         if (data.intent === 'application' && data.response) {
             appendMessage('bot', formatMarkdown(data.response));
             if (data.products && data.products.length > 0) {
@@ -917,7 +917,7 @@
 
         // Handle different response shapes
         if (data.products && Array.isArray(data.products) && data.products.length > 0) {
-            // Only show cards � no redundant text dump above them
+            // Only show cards — no redundant text dump above them
             await renderProductsBatched(data.products);
         } else if (data.results && Array.isArray(data.results) && data.results.length > 0) {
             if (data.total_found !== undefined) {
@@ -986,7 +986,7 @@
         checkAutoReset();
     }
 
-    // -- New Chat / Auto-reset after 50 searches (soft warning at 40) --
+    // ── New Chat / Auto-reset after 50 searches (soft warning at 40) ──
     function checkAutoReset() {
         if (searchCount === 40) {
             appendMessage('bot', formatMarkdown(
@@ -1007,7 +1007,7 @@
         chatArea.innerHTML = '<div class="welcome">' +
             '<div class="welcome-icon" style="font-size:48px;">&#128270;</div>' +
             '<h2>Filtration Mastermind</h2>' +
-            '<p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, compare products, check chemical compatibility, or ask for pricing � type it like you\'d say it.</p>' +
+            '<p style="font-size:16px; line-height:1.6;">Just ask. Look up a part, compare products, check chemical compatibility, or ask for pricing — type it like you\'d say it.</p>' +
             '<p style="margin-top:8px; font-size:13px; color:var(--text-light);">19,470 validated products. Real-time inventory. Real prices.</p>' +
             '</div>';
         // Reset state
@@ -1021,26 +1021,19 @@
         scrollToBottom();
     };
 
-    // -- Render products: 1 card if single, consolidated card if multiple --
+    // ── Render products: 1 card if single, consolidated card if multiple ──
     async function renderProductsBatched(products) {
-        // Sort by stock: in-stock first (highest stock count), then out-of-stock
-        products.sort(function(a, b) {
-            var stockA = a.Total_Stock || a.total_stock || 0;
-            var stockB = b.Total_Stock || b.total_stock || 0;
-            return stockB - stockA; // Descending order (highest stock first)
-        });
-        
         if (products.length === 1) {
-            // Single result � full product card
+            // Single result — full product card
             appendCard(renderProductCard(products[0]), false);
             appendFollowUps(products[0].Part_Number || products[0].part_number || '');
         } else if (products.length > 1) {
-            // Multiple results � consolidated card with expandable rows
+            // Multiple results — consolidated card with expandable rows
             appendCard(renderConsolidatedCard(products), true);
         }
     }
 
-    // Consolidated card � one card, multiple products as rows
+    // Consolidated card — one card, multiple products as rows
     window.renderConsolidatedCard = function (products) {
         var SHOW_LIMIT = 5;
         var cardId = 'consol_' + Date.now();
@@ -1094,8 +1087,8 @@
         sendMessage('lookup ' + partNumber);
     };
 
-    // -- Render product card --
-    // -- Structured chat response renderer (V2.10) --
+    // ── Render product card ──
+    // ── Structured chat response renderer (V2.10) ──
     // Renders the new {headline, picks, follow_up, body} shape from
     // /api/chat into a scannable card layout. Mirrors renderVoiceResponse
     // but sourced from data.products (chat returns full product records)
@@ -1147,7 +1140,7 @@
                 'background:#eef4ff;border-left:3px solid #0066CC;' +
                 'padding:10px 14px;margin:6px 0 0 0;border-radius:6px 6px 0 0;' +
                 'font-size:14px;line-height:1.5;color:#0a1628;">' +
-                '<strong>' + esc(pn) + '</strong> � ' +
+                '<strong>' + esc(pn) + '</strong> — ' +
                 esc(pick.reason || '') +
                 '</div>';
             appendMessage('bot', reasonHtml);
@@ -1159,7 +1152,7 @@
         });
 
         // 4. Show any catalog products NOT covered by picks below as
-        //    "Other options" � gives the rep more to scan if they want it.
+        //    "Other options" — gives the rep more to scan if they want it.
         var leftover = products.filter(function (p) {
             var pn = (p.Part_Number || p.part_number || p.Alt_Code || '').toString().trim().toUpperCase();
             return pn && !rendered[pn];
@@ -1171,7 +1164,7 @@
             });
         }
 
-        // 5. Follow-up question � italicized, conversational
+        // 5. Follow-up question — italicized, conversational
         if (followUp) {
             appendMessage('bot',
                 '<div style="font-style:italic;color:#444;font-size:14px;margin-top:8px;">' +
@@ -1180,7 +1173,7 @@
         }
     };
 
-    // -- Conversational voice-search response renderer (Phase 2c) --
+    // ── Conversational voice-search response renderer (Phase 2c) ──
     // Replaces the old "X products found" data-dump header with a ranked,
     // reasoned list. Reads data.recommendations (Phase 2 GPT re-rank) and
     // matches each part_number against data.results / data.candidates to
@@ -1217,7 +1210,7 @@
                 var product = findProductByPN(pn);
                 if (!product) return; // skip orphan recs
 
-                // Reason callout � soft-blue panel above the card
+                // Reason callout — soft-blue panel above the card
                 var reasonHtml =
                     '<div class="fm-rec-reason" style="' +
                     'background:#eef4ff;border-left:3px solid #0066CC;' +
@@ -1305,7 +1298,7 @@
             fields.push(['Micron', '<a class="card-link" onclick="sendMessage(\'search ' + esc(String(micron)) + ' micron filters\')">' + esc(String(micron)) + '</a>']);
         }
         if (media) fields.push(['Media', esc(String(media))]);
-        if (tempF && tempF !== '0' && tempF !== '0.0') fields.push(['Max Temp', esc(String(tempF)) + '&deg;F']);
+        if (tempF && tempF !== '0' && tempF !== '0.0') fields.push(['Max Temp', esc(String(tempF)) + '°F']);
         if (psi && psi !== '0' && psi !== '0.0') fields.push(['Max PSI', esc(String(psi)) + ' PSI']);
         if (flow) fields.push(['Flow Rate', esc(String(flow))]);
         if (eff) fields.push(['Efficiency', eff]);
@@ -1406,7 +1399,7 @@
         return html;
     };
 
-    // -- Parse chemical GPT response into structured data --
+    // ── Parse chemical GPT response into structured data ──
     function parseChemicalResponse(text) {
         if (!text) return null;
 
@@ -1429,10 +1422,10 @@
             seen[matKey] = true;
 
             var status, statusLabel;
-            if (grade === 'A') { status = 'compatible'; statusLabel = 'A � Compatible'; }
-            else if (grade === 'B') { status = 'limited'; statusLabel = 'B � Limited'; }
-            else if (grade === 'C') { status = 'limited'; statusLabel = 'C � Caution'; }
-            else { status = 'not compatible'; statusLabel = 'D � AVOID'; }
+            if (grade === 'A') { status = 'compatible'; statusLabel = 'A — Compatible'; }
+            else if (grade === 'B') { status = 'limited'; statusLabel = 'B — Limited'; }
+            else if (grade === 'C') { status = 'limited'; statusLabel = 'C — Caution'; }
+            else { status = 'not compatible'; statusLabel = 'D — AVOID'; }
 
             compatibilities.push({ material: mat, status: statusLabel, grade: grade });
         }
@@ -1456,8 +1449,8 @@
         });
         if (extraLines.length) extras = extraLines.join('\n');
 
-        // Clean up chemical name � remove "Chemical Compatibility �" prefix
-        chemical = chemical.replace(/^Chemical\s*Compatibility\s*[-�]\s*/i, '').trim();
+        // Clean up chemical name — remove "Chemical Compatibility —" prefix
+        chemical = chemical.replace(/^Chemical\s*Compatibility\s*[-—]\s*/i, '').trim();
         if (!chemical || chemical.length < 2) chemical = 'Chemical Compatibility';
 
         return {
@@ -1468,7 +1461,7 @@
         };
     }
 
-    // -- Parse application guidance GPT response into structured data --
+    // ── Parse application guidance GPT response into structured data ──
     // Supports V5 5-bullet format: Customer Focus, Lead Product, Talking Points, Key Question, Watch Out
     function parsePregameResponse(text) {
         if (!text || text.length < 50) return null;
@@ -1491,12 +1484,12 @@
         var watchMatch = text.match(/\*?\*?Watch Out\*?\*?[:\s]*([^\n]+(?:\n(?!\d+\.\s|\*\*)[^\n]+)*)/i);
 
         if (focusMatch || leadMatch || talkMatch) {
-            // V5 format detected � use structured extraction
+            // V5 format detected — use structured extraction
             if (focusMatch) concerns.push(focusMatch[1].trim());
             if (talkMatch) {
                 // Split talking points by sub-numbers or dashes
                 var tpText = talkMatch[1].trim();
-                var tpItems = tpText.split(/(?:\d+\)|[-��])\s*/);
+                var tpItems = tpText.split(/(?:\d+\)|[-–—])\s*/);
                 tpItems.forEach(function(tp) {
                     tp = tp.trim();
                     if (tp.length > 5) concerns.push(tp);
@@ -1515,7 +1508,7 @@
                 });
             }
 
-            // Extract recommended product � be more specific to avoid false matches
+            // Extract recommended product — be more specific to avoid false matches
             var prodMatch = text.match(/(?:Lead Product|#1 Product|Recommended Product|Primary Product)[:\s]*\**([^*\n]+)/i);
             if (prodMatch) product = prodMatch[1].trim();
 
@@ -1528,7 +1521,7 @@
         var caseMatch = text.match(/(?:case study|example|reference)[:\s]*\**([^*\n]+)/i);
         if (caseMatch) caseStudy = caseMatch[1].trim();
 
-        // If we couldn't parse enough structure, return null � let it render as text
+        // If we couldn't parse enough structure, return null — let it render as text
         if (concerns.length < 2 && !product && !question) return null;
 
         return {
@@ -1541,7 +1534,7 @@
         };
     }
 
-    // -- Render application guidance card --
+    // ── Render application guidance card ──
     window.renderPregameCard = function (data) {
         var html = '<div class="chemical-card">';
         html += '<div class="chemical-card-header">Application Guidance' + (data.industry ? ': ' + esc(data.industry) : '') + '</div>';
@@ -1579,7 +1572,7 @@
             html += '</div>';
         }
 
-        // Chain action buttons � guide the rep to the next step
+        // Chain action buttons — guide the rep to the next step
         html += '<div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:8px;">';
 
         if (data.product) {
@@ -1598,7 +1591,7 @@
         return html;
     };
 
-    // -- Render chemical card --
+    // ── Render chemical card ──
     window.renderChemicalCard = function (data) {
         var html = '<div class="chemical-card">';
         html += '<div class="chemical-card-header">' + esc(data.chemical || 'Chemical Compatibility') + '</div>';
@@ -1613,16 +1606,16 @@
                 var rowCls, badgeCls, displayText;
                 if (grade === 'A') {
                     rowCls = 'compatible'; badgeCls = 'green';
-                    displayText = row.status || 'A � Compatible';
+                    displayText = row.status || 'A — Compatible';
                 } else if (grade === 'B') {
                     rowCls = 'limited'; badgeCls = 'orange';
-                    displayText = row.status || 'B � Limited';
+                    displayText = row.status || 'B — Limited';
                 } else if (grade === 'C') {
                     rowCls = 'limited'; badgeCls = 'orange';
-                    displayText = row.status || 'C � Caution';
+                    displayText = row.status || 'C — Caution';
                 } else if (grade === 'D') {
                     rowCls = 'not-compatible'; badgeCls = 'red';
-                    displayText = row.status || 'D � AVOID';
+                    displayText = row.status || 'D — AVOID';
                 } else {
                     // Legacy fallback for status-only data
                     rowCls = status.includes('compatible') && !status.includes('not') ? 'compatible' :
@@ -1647,7 +1640,7 @@
         return html;
     };
 
-    // -- Render table card --
+    // ── Render table card ──
     window.renderTableCard = function (data) {
         var html = '<div class="table-card">';
         if (data.title) {
@@ -1685,7 +1678,7 @@
         return html;
     };
 
-    // -- Contextual Action Panel (replaces simple follow-up buttons) --
+    // ── Contextual Action Panel (replaces simple follow-up buttons) ──
     function appendFollowUps(partNumber, customFollowUps) {
         if (customFollowUps) {
             // Custom follow-ups: render as simple buttons
@@ -1744,7 +1737,7 @@
         }
     };
 
-    // Show compare � opens side panel with smart suggestions
+    // Show compare — opens side panel with smart suggestions
     window.showCompareForm = function (partNumber, panelId) {
         // Instead of inline form, open compare side panel
         openComparePanel(partNumber);
@@ -1764,7 +1757,7 @@
         }, 500);
     };
 
-    // -- Compare Side Panel --
+    // ── Compare Side Panel ──
     function openComparePanel(partNumber) {
         var panel = document.getElementById('comparePanel');
         var overlay = document.getElementById('comparePanelOverlay');
@@ -1809,7 +1802,7 @@
             html += '<div class="compare-source-specs">';
             if (s.Micron) html += '<span class="compare-spec-tag">Micron: ' + esc(String(s.Micron)) + '</span>';
             if (s.Media) html += '<span class="compare-spec-tag">' + esc(String(s.Media)) + '</span>';
-            if (s.Max_Temp_F) html += '<span class="compare-spec-tag">' + esc(String(s.Max_Temp_F)) + '�F</span>';
+            if (s.Max_Temp_F) html += '<span class="compare-spec-tag">' + esc(String(s.Max_Temp_F)) + '°F</span>';
             if (s.Max_PSI) html += '<span class="compare-spec-tag">' + esc(String(s.Max_PSI)) + ' PSI</span>';
             if (s.Final_Manufacturer) html += '<span class="compare-spec-tag">' + esc(String(s.Final_Manufacturer)) + '</span>';
             html += '</div></div>';
@@ -1837,14 +1830,14 @@
                 cat.products.forEach(function (p) {
                     var specParts = [];
                     if (p.Micron) specParts.push(p.Micron + ' micron');
-                    if (p.Max_Temp_F) specParts.push(p.Max_Temp_F + '�F');
+                    if (p.Max_Temp_F) specParts.push(p.Max_Temp_F + '°F');
                     if (p.Max_PSI) specParts.push(p.Max_PSI + ' PSI');
                     var priceStr = p.Price || 'Contact Enpro';
 
                     html += '<div class="compare-suggestion" onclick="runCompareFromPanel(\'' + esc(sourcePartNumber) + '\', \'' + esc(p.Part_Number || '') + '\')">';
                     html += '<div class="compare-suggestion-info">';
                     html += '<div class="compare-suggestion-pn">' + esc(p.Part_Number || '') + '</div>';
-                    html += '<div class="compare-suggestion-desc">' + esc(p.Description || '') + ' � ' + esc(String(priceStr)) + '</div>';
+                    html += '<div class="compare-suggestion-desc">' + esc(p.Description || '') + ' — ' + esc(String(priceStr)) + '</div>';
                     if (specParts.length) {
                         html += '<div class="compare-suggestion-specs">';
                         specParts.forEach(function (specPart) {
@@ -1926,7 +1919,7 @@
                 suggestions.forEach(function (item) {
                     var pn = item.Part_Number || '';
                     var desc = item.Description || '';
-                    html += '<option value="' + esc(pn).replace(/"/g, '&quot;') + '">' + esc(pn + (desc ? ' � ' + desc : '')) + '</option>';
+                    html += '<option value="' + esc(pn).replace(/"/g, '&quot;') + '">' + esc(pn + (desc ? ' — ' + desc : '')) + '</option>';
                 });
                 list.innerHTML = html;
             })
@@ -1946,7 +1939,7 @@
         sendMessage('compare ' + sourcePn + ' vs ' + target);
     };
 
-    // -- Compare Selector (top-nav / quick action Compare button) --
+    // ── Compare Selector (top-nav / quick action Compare button) ──
     window.openCompareSelector = function() {
         var panel = document.getElementById('comparePanel');
         var overlay = document.getElementById('comparePanelOverlay');
@@ -2048,7 +2041,7 @@
         sendMessage('compare ' + partNumber + ' vs ' + compareTo);
     };
 
-    // -- Quote Readiness Tracker --
+    // ── Quote Readiness Tracker ──
     var quoteStateData = null;
 
     function stateLineItems(state) {
@@ -2230,7 +2223,7 @@
         renderQuoteDrawer();
     };
 
-    // -- Numbered options --
+    // ── Numbered options ──
     function appendNumberedOptions(options) {
         lastFollowUps = options;
 
@@ -2257,8 +2250,13 @@
         scrollToBottom();
     }
 
-    // -- Append message --
+    // ── Append message ──
     function appendMessage(role, html) {
+        // v2.16: Hide "I heard" voice transcript messages
+        if (role === 'bot' && html.includes('I heard:')) {
+            return; // Don't show "I heard" messages
+        }
+        
         var wrapper = document.createElement('div');
         wrapper.className = 'msg ' + role;
 
@@ -2276,7 +2274,7 @@
         scrollToBottom();
     }
 
-    // -- Append raw card HTML --
+    // ── Append raw card HTML ──
     function appendCard(cardHtml, staggered) {
         var wrapper = document.createElement('div');
         wrapper.className = 'msg bot';
@@ -2297,7 +2295,7 @@
         scrollToBottom();
     }
 
-    // -- Markdown-lite formatting --
+    // ── Markdown-lite formatting ──
     function formatMarkdown(text) {
         if (!text) return '';
         // Strip internal data source labels
@@ -2310,7 +2308,7 @@
         // Strip follow-up option lines that GPT includes as text
         text = text.replace(/^.*(?:Application Guidance|quote ready|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:quote ready|help|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:help)?\.?\s*$/gim, '');
         // Clean up stray markdown artifacts
-        text = text.replace(/^\s*[-��]\s*/gm, '');  // Strip leading dashes/bullets
+        text = text.replace(/^\s*[-•–]\s*/gm, '');  // Strip leading dashes/bullets
         text = text.replace(/^\s*#{1,3}\s+/gm, '');  // Strip heading markers
         text = text.replace(/\s{2,}/g, ' ');
         var s = esc(text);
@@ -2320,7 +2318,7 @@
         s = s.replace(/\*/g, '');
         // Inline code
         s = s.replace(/`(.+?)`/g, '<code>$1</code>');
-        // Numbered lists � add proper spacing
+        // Numbered lists — add proper spacing
         s = s.replace(/(\d+)\.\s+/g, '<br>$1. ');
         // Line breaks
         s = s.replace(/\n/g, '<br>');
@@ -2329,7 +2327,7 @@
         return s;
     }
 
-    // -- HTML escape --
+    // ── HTML escape ──
     function esc(str) {
         if (!str) return '';
         var div = document.createElement('div');
@@ -2337,7 +2335,7 @@
         return div.innerHTML;
     }
 
-    // -- Loading state --
+    // ── Loading state ──
     function setLoading(on) {
         isLoading = on;
         if (sendBtn) sendBtn.disabled = on;
@@ -2348,20 +2346,20 @@
         }
     }
 
-    // -- Scroll --
+    // ── Scroll ──
     function scrollToBottom() {
         requestAnimationFrame(function () {
             chatArea.scrollTop = chatArea.scrollHeight;
         });
     }
 
-    // -- Clear welcome --
+    // ── Clear welcome ──
     function clearWelcome() {
         var w = chatArea.querySelector('.welcome');
         if (w) w.remove();
     }
 
-    // -- Modal management --
+    // ── Modal management ──
     var lookupModeRow = document.getElementById('lookupModeRow');
     var lookupMode = document.getElementById('lookupMode');
     var pregameStep = 0;
@@ -2488,7 +2486,7 @@
                 modalTitle.textContent = 'Search Products';
                 modalLabel.textContent = 'Search Query';
                 modalInput.placeholder = 'e.g., 10 micron bag filter';
-                modalHint.textContent = 'Describe what you need � specs, type, application.';
+                modalHint.textContent = 'Describe what you need — specs, type, application.';
                 break;
             case 'supplier':
                 modalTitle.textContent = 'Supplier Code Lookup';
@@ -2608,9 +2606,9 @@
         }
     };
 
-    // -- Search Filter Toggles --
+    // ── Search Filter Toggles ──
 
-    // -- Typeahead / Autocomplete --
+    // ── Typeahead / Autocomplete ──
     var suggestDropdown = document.getElementById('suggestDropdown');
     var suggestTimer = null;
     var suggestSelectedIndex = -1;
@@ -2746,13 +2744,13 @@
         origHideModal(e);
     };
 
-    // -- Quick search from tags --
+    // ── Quick search from tags ──
     window.quickSearch = function (term) {
         hideModal();
         doSearch(term);
     };
 
-    // -- Copy to clipboard (no email app) --
+    // ── Copy to clipboard (no email app) ──
     window.copyToClipboard = function (text, el) {
         navigator.clipboard.writeText(text).then(function () {
             // Show toast
@@ -2777,7 +2775,7 @@
         });
     };
 
-    // -- Print / Copy product card --
+    // ── Print / Copy product card ──
     window.printCard = function (btn) {
         var card = btn.closest('.product-card');
         if (!card) return;
@@ -2793,7 +2791,7 @@
         printWin.document.write('.card-actions{display:none;}.stock-qty{font-weight:700;}');
         printWin.document.write('</style></head><body>');
         printWin.document.write(card.outerHTML);
-        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Enpro Inc. | the office | check in with the office</div>');
+        printWin.document.write('<div style="margin-top:20px;text-align:center;font-size:11px;color:#999;">Enpro Inc. | service@enproinc.com | 1 (800) 323-2416</div>');
         printWin.document.write('</body></html>');
         printWin.document.close();
         printWin.print();
@@ -2809,7 +2807,7 @@
         var stockRows = card.querySelectorAll('.stock-row');
 
         var text = (header ? header.textContent.trim() : '') + '\n';
-        text += '-'.repeat(40) + '\n';
+        text += '─'.repeat(40) + '\n';
         fields.forEach(function (f) {
             var label = f.querySelector('.product-field-label');
             var value = f.querySelector('.product-field-value');
@@ -2823,13 +2821,13 @@
             stockRows.forEach(function (r) { text += r.textContent.trim().replace(/\s+/g, ' ') + ' | '; });
             text = text.slice(0, -3) + '\n';
         }
-        text += '-'.repeat(40) + '\n';
-        text += 'Enpro Inc. | the office | check in with the office\n';
+        text += '─'.repeat(40) + '\n';
+        text += 'Enpro Inc. | service@enproinc.com | 1 (800) 323-2416\n';
 
         copyToClipboard(text, btn);
     };
 
-    // -- Admin Stats Tracking --
+    // ── Admin Stats Tracking ──
     var adminStats = {
         queries: 0,
         cost: 0,
@@ -2909,7 +2907,7 @@
         console.log('REPORT:', reportData);
     };
 
-    // -- Dark Mode Toggle --
+    // ── Dark Mode Toggle ──
     window.toggleDarkMode = function () {
         document.body.classList.toggle('dark-mode');
         var isDark = document.body.classList.contains('dark-mode');
@@ -2923,10 +2921,10 @@
         document.getElementById('darkModeBtn').textContent = '\u2600';
     }
 
-    // -- Expose for inline onclick --
+    // ── Expose for inline onclick ──
     window.sendMessage = sendMessage;
 
-    // -- Load chemical names for dropdown --
+    // ── Load chemical names for dropdown ──
     (async function loadChemicals() {
         try {
             var res = await fetch(API_BASE + '/api/chemicals/list');
@@ -2951,7 +2949,7 @@
         }
     })();
 
-    // -- Load manufacturer names for dropdown --
+    // ── Load manufacturer names for dropdown ──
     (async function loadManufacturers() {
         try {
             var res = await fetch(API_BASE + '/api/manufacturers/list');
@@ -2975,7 +2973,7 @@
         }
     })();
 
-    // -- Load product types for dropdown --
+    // ── Load product types for dropdown ──
     (async function loadProductTypes() {
         try {
             var res = await fetch(API_BASE + '/api/product-types/list');
@@ -2999,7 +2997,7 @@
         }
     })();
 
-    // -- Contextual Nav � fade inactive buttons on flow --
+    // ── Contextual Nav — fade inactive buttons on flow ──
     window.activateFlow = function (flowName) {
         var btns = document.querySelectorAll('.qa-btn');
         btns.forEach(function (btn) {
@@ -3047,7 +3045,7 @@
         origNewChat2();
     };
 
-    // -- Wipe 7-day conversation memory + start fresh --
+    // ── Wipe 7-day conversation memory + start fresh ──
     // Header "Start Fresh" button. Calls /api/chat/reset (which only works
     // when DB-auth is configured), then runs newChat() to clear local UI
     // state. Soft-fails: if /reset returns 503 (auth not configured), we
@@ -3071,7 +3069,7 @@
         });
     };
 
-    // -- Sign-out --
+    // ── Sign-out ──
     // Calls /api/auth/logout to clear the server-side session cookie, then
     // hard-redirects to /login.html. The global fetch wrapper will also kick
     // any subsequent 401 back to login, so this is belt-and-suspenders.
@@ -3086,7 +3084,7 @@
           });
     };
 
-    // -- User identity chip � populate from window.__FM_USER --
+    // ── User identity chip — populate from window.__FM_USER ──
     // The auth gate in index.html sets window.__FM_USER on /api/auth/me 200.
     // If present, show the chip with first name + initials. If not (legacy
     // mode, DB-auth not configured, or unauthenticated path), keep it hidden.
@@ -3110,7 +3108,7 @@
         chip.style.display = 'inline-flex';
     })();
 
-    // -- Session History --
+    // ── Session History ──
     var SEARCH_HISTORY_KEY = 'enpro_fm_search_history';
     var MAX_HISTORY = 30;
 
@@ -3174,7 +3172,7 @@
         statsEl.innerHTML = '<div class="history-stat-row"><span class="history-stat-label">Queries</span><span class="history-stat-value">' + (adminStats ? adminStats.queries : 0) + '</span></div>'
             + '<div class="history-stat-row"><span class="history-stat-label">Cost</span><span class="history-stat-value">$' + (adminStats ? adminStats.cost.toFixed(3) : '0.000') + '</span></div>'
             + '<div class="history-stat-row"><span class="history-stat-label">Reports</span><span class="history-stat-value">' + reports.length + '</span></div>'
-            + '<div class="history-stat-row"><span class="history-stat-label">Session</span><span class="history-stat-value">' + (sessionId ? sessionId.substring(0, 8) : '�') + '</span></div>';
+            + '<div class="history-stat-row"><span class="history-stat-label">Session</span><span class="history-stat-value">' + (sessionId ? sessionId.substring(0, 8) : '—') + '</span></div>';
     }
 
     window.emailReports = function () {
@@ -3188,7 +3186,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                subject: 'Enpro FM Portal � Flagged Reports (' + reports.length + ')',
+                subject: 'Enpro FM Portal — Flagged Reports (' + reports.length + ')',
                 body: 'Reports flagged during session ' + (sessionId || 'unknown').substring(0, 8),
                 reports: reports
             })
@@ -3233,7 +3231,7 @@
         }
     };
 
-    // -- Quote Builder --
+    // ── Quote Builder ──
     var quoteData = {
         step: 0,
         company: '',
@@ -3318,14 +3316,14 @@
             prevBtn.style.display = '';
             nextBtn.textContent = 'Submit Quote';
 
-            html += '<div class="quote-summary-section"><div class="quote-summary-label">Company</div><div class="quote-summary-value">' + esc(quoteData.company || '�') + '</div></div>';
-            html += '<div class="quote-summary-section"><div class="quote-summary-label">Contact</div><div class="quote-summary-value">' + esc(quoteData.contact_name || '�') + ' &mdash; ' + esc(quoteData.contact_email || '') + ' ' + esc(quoteData.contact_phone || '') + '</div></div>';
-            html += '<div class="quote-summary-section"><div class="quote-summary-label">Ship To</div><div class="quote-summary-value">' + esc(quoteData.ship_to || '�') + '</div></div>';
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Company</div><div class="quote-summary-value">' + esc(quoteData.company || '—') + '</div></div>';
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Contact</div><div class="quote-summary-value">' + esc(quoteData.contact_name || '—') + ' &mdash; ' + esc(quoteData.contact_email || '') + ' ' + esc(quoteData.contact_phone || '') + '</div></div>';
+            html += '<div class="quote-summary-section"><div class="quote-summary-label">Ship To</div><div class="quote-summary-value">' + esc(quoteData.ship_to || '—') + '</div></div>';
 
             html += '<div class="quote-summary-section"><div class="quote-summary-label">Items (' + quoteData.items.length + ')</div>';
             if (quoteData.items.length) {
                 quoteData.items.forEach(function (item) {
-                    html += '<div style="font-size:13px; padding:4px 0;">' + esc(item.part_number) + ' � Qty: ' + (item.quantity || 1) + (item.price ? ' � ' + esc(item.price) : '') + '</div>';
+                    html += '<div style="font-size:13px; padding:4px 0;">' + esc(item.part_number) + ' — Qty: ' + (item.quantity || 1) + (item.price ? ' — ' + esc(item.price) : '') + '</div>';
                 });
             } else {
                 html += '<div style="font-size:13px; color:var(--text-light);">No items</div>';
@@ -3450,7 +3448,7 @@
         .then(function (data) {
             if (data.status === 'saved') {
                 closeQuoteModal();
-                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Contact: the office | check in with the office');
+                appendMessage('bot', '<strong>Quote ' + esc(data.quote.id) + ' saved.</strong><br>Enpro will follow up within 1 business day.<br>Contact: service@enproinc.com | 1 (800) 323-2416');
                 // Reset
                 quoteData = { step: 0, company: '', contact_name: '', contact_email: '', contact_phone: '', ship_to: '', items: [], notes: '' };
                 quoteItems = [];
@@ -3465,7 +3463,7 @@
         });
     }
 
-    // -- Ask John � Route through KB expertise --
+    // ── Ask John — Route through KB expertise ──
     window.askJohn = function () {
         var text = userInput.value.trim();
 
@@ -3489,14 +3487,14 @@
             }
         }
 
-        // No context � prompt user
+        // No context — prompt user
         appendMessage('bot', 'Type a question or look up a product first, then hit <strong>Ask John</strong> to get expert KB guidance.');
     };
 
     async function askJohnSend(text) {
         if (isLoading) return;
         clearWelcome();
-        appendMessage('user', '?? Ask John: ' + text);
+        appendMessage('user', '🔮 Ask John: ' + text);
         setLoading(true);
         var queryStart = Date.now();
 
@@ -3518,7 +3516,7 @@
         }
     }
 
-    // -- Two-Lane Workbench � Context Parser --
+    // ── Two-Lane Workbench — Context Parser ──
     var sessionContext = {
         fluid: null,
         micron: null,
@@ -3549,13 +3547,13 @@
         }
 
         // Micron
-        var micronMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:micron|�m|um)\b/);
+        var micronMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:micron|μm|um)\b/);
         if (micronMatch) sessionContext.micron = micronMatch[1] + ' \u03BCm';
 
         // Temperature
-        var tempMatch = lower.match(/(\d{2,})\s*�?\s*(?:f|fahrenheit)/);
+        var tempMatch = lower.match(/(\d{2,})\s*°?\s*(?:f|fahrenheit)/);
         if (tempMatch) sessionContext.temperature = tempMatch[1] + '\u00B0F';
-        var tempC = lower.match(/(\d{2,})\s*�?\s*(?:c|celsius)/);
+        var tempC = lower.match(/(\d{2,})\s*°?\s*(?:c|celsius)/);
         if (tempC) sessionContext.temperature = tempC[1] + '\u00B0C';
 
         // Flow rate
@@ -3678,12 +3676,12 @@
     function updateContextFromProducts(products) {
         if (!products || !products.length) return;
         var p = products[0]; // Use first product's specs
-        if (p.Micron && !sessionContext.micron) sessionContext.micron = p.Micron + ' �m';
-        if (p.Max_Temp_F && !sessionContext.temperature) sessionContext.temperature = p.Max_Temp_F + '�F';
+        if (p.Micron && !sessionContext.micron) sessionContext.micron = p.Micron + ' μm';
+        if (p.Max_Temp_F && !sessionContext.temperature) sessionContext.temperature = p.Max_Temp_F + '°F';
         if (p.Max_PSI && !sessionContext.pressure) sessionContext.pressure = p.Max_PSI + ' PSI';
         if (p.Flow_Rate && !sessionContext.flowRate) sessionContext.flowRate = String(p.Flow_Rate);
         if (p.Media && !sessionContext.fluid && String(p.Media).toLowerCase() !== 'various') {
-            // Don't overwrite fluid with media � different concept
+            // Don't overwrite fluid with media — different concept
         }
         if (p.Product_Type && !sessionContext.industry) {
             // Product type can hint at industry but don't overwrite
@@ -3723,7 +3721,7 @@
         }
     };
 
-    // -- Quote Drawer (right side) --
+    // ── Quote Drawer (right side) ──
     var quoteItems = JSON.parse(localStorage.getItem('enpro_quote_items') || '[]');
 
     window.toggleQuoteDrawer = function () {
@@ -3761,7 +3759,7 @@
         localStorage.setItem('enpro_quote_items', JSON.stringify(quoteItems));
         renderQuoteDrawer();
 
-        btn.textContent = '? Added';
+        btn.textContent = '✓ Added';
         btn.style.color = 'var(--stock-green)';
         btn.style.pointerEvents = 'none';
     };
@@ -3844,7 +3842,7 @@
         btn.style.pointerEvents = 'none';
     };
 
-    // -- Voice Agent (MediaRecorder ? Server STT ? Voice Search) --
+    // ── Voice Agent (MediaRecorder → Server STT → Voice Search) ──
     var micBtn = document.getElementById('micBtn');
     var isListening = false;
     var voiceSynth = window.speechSynthesis;
@@ -3921,7 +3919,7 @@
 
     window.toggleVoice = function () {
         if (window.__fmVoiceBusy) {
-            // Already processing a previous capture � ignore the click instead
+            // Already processing a previous capture — ignore the click instead
             // of stacking another in-flight request.
             return;
         }
@@ -3958,7 +3956,7 @@
                 // before burning a Whisper call.
                 if (blob.size < 2048) {
                     userInput.placeholder = 'Ask about a part, chemical, or product...';
-                    appendMessage('bot', "I didn't catch any audio - try holding the mic and speaking clearly.");
+                    appendMessage('bot', "I didn't catch any audio — try holding the mic and speaking clearly.");
                     return;
                 }
 
@@ -3966,7 +3964,7 @@
                 window.__fmVoiceBusy = true;
                 lastInteractionWasVoice = true;
                 userInput.placeholder = 'Processing voice...';
-                appendMessage('user', '[Voice search...]');
+                appendMessage('user', '🎤 Voice search...');
 
                 try {
                     var formData = new FormData();
@@ -3977,9 +3975,9 @@
                         // Branch on status code so we can give a useful message
                         // instead of "Voice search failed" for everything.
                         if (resp.status === 429) {
-                            appendMessage('bot', 'Whisper is busy right now - give it a sec and try again.');
+                            appendMessage('bot', 'Whisper is busy right now — give it a sec and try again.');
                         } else if (resp.status === 400) {
-                            appendMessage('bot', "I couldn't make out the audio - try again, a little louder.");
+                            appendMessage('bot', "I couldn't make out the audio — try again, a little louder.");
                         } else if (resp.status >= 500) {
                             appendMessage('bot', 'Voice service is having a moment. Try again in a few seconds, or type it instead.');
                         } else {
@@ -3991,8 +3989,11 @@
 
                     var data = await resp.json();
 
-                    // Check for voice commands (no longer show "I heard" - removed for cleaner UX)
+                    // Show what was heard
                     if (data.transcript) {
+                        appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
+                        
+                        // Check for voice commands
                         var voiceCmd = checkVoiceCommands(data.transcript);
                         if (voiceCmd) {
                             // Command handled, stop processing
@@ -4011,7 +4012,7 @@
                             sugHtml += '<strong>Did you mean?</strong><br>';
                             strongSuggestions.forEach(function (s) {
                                 sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
-                                sugHtml += '"' + esc(String(s.original)) + '" ? <strong>' + esc(String(s.resolved)) + '</strong>';
+                                sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
                                 sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
                             });
                             sugHtml += '</div>';
@@ -4031,7 +4032,7 @@
                         //    woven into the product card.
                         // 2. Show remaining results below as "other options"
                         //    so the rep can still scan more if they want.
-                        // 3. Drop the raw "1515 products found" header � that's
+                        // 3. Drop the raw "1515 products found" header — that's
                         //    the data dump Andrew called out as the core failure.
                         renderVoiceResponse(data);
                     } else {
@@ -4073,7 +4074,7 @@
         }
     }
 
-    // Text-to-Speech � read bot responses aloud
+    // Text-to-Speech — read bot responses aloud
     function speakResponse(text) {
         if (!voiceSynth || !text) return;
         voiceSynth.cancel();
@@ -4125,10 +4126,10 @@
         }
     }
 
-    // -- Simulate Mode � In-App Live Demo --
-    // Demo scenarios � grouped as FLOWS (3-4 chained commands per flow, no reset between)
+    // ── Simulate Mode — In-App Live Demo ──
+    // Demo scenarios — grouped as FLOWS (3-4 chained commands per flow, no reset between)
     var SIM_SCENARIOS = [
-        // FLOW 1: Full rep workflow � lookup ? pin ? chemical ? compare
+        // FLOW 1: Full rep workflow — lookup → pin → chemical → compare
         { label: 'Part Lookup', query: '2004355', pause: 5000, flow: 1, autoPin: true,
           narration: 'Flow 1: Rep has a part number. Look it up, pin it, explore.' },
         { label: 'Chemical Check', query: 'chemical compatibility of sulfuric acid', pause: 7000, flow: 1,
@@ -4138,7 +4139,7 @@
         { label: 'Compare Side-by-Side', query: 'compare 2004355 vs CMBF1-30NN', pause: 7000, flow: 1,
           narration: 'Side-by-side comparison. Real specs, real prices, real stock.' },
 
-        // FLOW 2: Application branch ? products ? manufacturer
+        // FLOW 2: Application branch → products → manufacturer
         { label: 'Brewery Branch', query: 'application brewery', pause: 7000, flow: 2,
           narration: 'Flow 2: Rep has a brewery call. Branch into application guidance.' },
         { label: 'Find Depth Sheets', query: 'search depth sheet', pause: 5000, flow: 2,
@@ -4148,7 +4149,7 @@
         { label: 'Check Acetone', query: 'chemical compatibility of acetone', pause: 7000, flow: 2,
           narration: 'Customer uses acetone for cleaning. Check compatibility fast.' },
 
-        // FLOW 3: Natural language ? context fills ? expert
+        // FLOW 3: Natural language → context fills → expert
         { label: 'Describe the Need', query: 'I need a 10 micron polypropylene filter for hydraulic oil at 200F in a refinery', pause: 8000, flow: 3,
           narration: 'Flow 3: Customer describes what they need. Watch the context card fill.' },
         { label: 'Expert Advice', query: 'what filter for glycol dehydration in a gas plant', pause: 8000, flow: 3,
