@@ -3327,13 +3327,19 @@
         btn.style.pointerEvents = 'none';
     };
 
-    // ── Voice Agent (MediaRecorder → Server STT → Voice Search) ──
+    // ── Voice Agent (Web Speech API → existing chat pipeline) ──
+    // Streaming browser STT (Chrome/Edge). Whisper upload kept as fallback for
+    // browsers without webkitSpeechRecognition. Final transcript flows through
+    // sendMessage() so it hits the SAME router/intent branching as typed input.
     var micBtn = document.getElementById('micBtn');
     var isListening = false;
     var voiceSynth = window.speechSynthesis;
     var lastInteractionWasVoice = false;
-    var voiceMediaRecorder = null;
-    var voiceAudioChunks = [];
+    var voiceRecognition = null;
+    var voiceFinalTranscript = '';
+    var cachedVoices = [];
+    var cachedPreferredVoice = null;
+    window.voiceEchoContinuous = true; // re-arm mic after TTS finishes
 
     // Global search settings - only in stock filter remains
     window.searchSettings = {
@@ -3408,126 +3414,168 @@
         }
     };
 
-    async function startListening() {
-        try {
-            var stream = await navigator.mediaDevices.getUserMedia({
-                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
-            });
-            voiceAudioChunks = [];
-            var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-            voiceMediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+    function getRecognitionCtor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
 
-            voiceMediaRecorder.ondataavailable = function (e) {
-                if (e.data.size > 0) voiceAudioChunks.push(e.data);
+    async function startListening() {
+        var Ctor = getRecognitionCtor();
+        if (!Ctor) {
+            // Fallback: legacy Whisper upload path for browsers without Web Speech API
+            return startListeningWhisperFallback();
+        }
+        // Don't open the mic while TTS is still speaking — avoids self-echo
+        if (voiceSynth && voiceSynth.speaking) {
+            voiceSynth.addEventListener('end', function once() {
+                voiceSynth.removeEventListener('end', once);
+                startListening();
+            }, { once: true });
+            return;
+        }
+        try {
+            voiceRecognition = new Ctor();
+            voiceRecognition.lang = 'en-US';
+            voiceRecognition.continuous = false;
+            voiceRecognition.interimResults = true;
+            voiceRecognition.maxAlternatives = 1;
+            voiceFinalTranscript = '';
+
+            voiceRecognition.onstart = function () {
+                isListening = true;
+                micBtn.classList.add('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'block';
+                userInput.placeholder = 'Listening… speak now';
             };
 
-            voiceMediaRecorder.onstop = async function () {
-                stream.getTracks().forEach(function (t) { t.stop(); });
-                if (voiceAudioChunks.length === 0) { return; }
+            voiceRecognition.onresult = function (ev) {
+                var interim = '';
+                for (var i = ev.resultIndex; i < ev.results.length; i++) {
+                    var r = ev.results[i];
+                    if (r.isFinal) voiceFinalTranscript += r[0].transcript;
+                    else interim += r[0].transcript;
+                }
+                // Live preview in the input box so the rep sees words land in real time
+                userInput.value = (voiceFinalTranscript + ' ' + interim).trim();
+            };
 
-                var blob = new Blob(voiceAudioChunks, { type: voiceMediaRecorder.mimeType });
-                voiceAudioChunks = [];
+            voiceRecognition.onerror = function (ev) {
+                console.warn('Voice recognition error:', ev.error);
+                if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+                    appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
+                } else if (ev.error !== 'no-speech' && ev.error !== 'aborted') {
+                    appendMessage('bot', 'Voice error: ' + ev.error + '. Try again or type instead.');
+                }
+                stopListening();
+            };
 
-                // Show processing state
-                lastInteractionWasVoice = true;
-                userInput.placeholder = 'Processing voice...';
-                appendMessage('user', '🎤 Voice search...');
+            voiceRecognition.onend = function () {
+                var transcript = (voiceFinalTranscript || userInput.value || '').trim();
+                isListening = false;
+                micBtn.classList.remove('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'none';
+                userInput.placeholder = 'Ask about a part, chemical, or product...';
 
-                try {
-                    var formData = new FormData();
-                    formData.append('file', blob, 'recording.webm');
-                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: formData });
+                if (!transcript) return;
 
-                    if (!resp.ok) {
-                        appendMessage('bot', 'Voice search failed. Try again or type your query.');
-                        userInput.placeholder = 'Ask about a part, chemical, or product...';
-                        return;
-                    }
-
-                    var data = await resp.json();
-
-                    // Show what was heard
-                    if (data.transcript) {
-                        appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
-                        
-                        // Check for voice commands
-                        var voiceCmd = checkVoiceCommands(data.transcript);
-                        if (voiceCmd) {
-                            // Command handled, stop processing
-                            return;
-                        }
-                    }
-
-                    // Show confidence suggestions only when we are at/above the 90% gate.
-                    if (data.suggestions && data.suggestions.length > 0) {
-                        var strongSuggestions = data.suggestions.filter(function (s) {
-                            return (s.confidence || 0) >= 0.90;
-                        });
-
-                        if (strongSuggestions.length > 0) {
-                            var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
-                            sugHtml += '<strong>Did you mean?</strong><br>';
-                            strongSuggestions.forEach(function (s) {
-                                sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
-                                sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
-                                sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
-                            });
-                            sugHtml += '</div>';
-                            appendMessage('bot', sugHtml);
-                        } else {
-                            var question = 'What did you want in inventory? Please repeat it more clearly.';
-                            appendCard(renderVoiceClarifyCard(question, ''));
-                        }
-                    }
-
-                    // Render product results using existing card renderer
-                    if (data.results && data.results.length > 0) {
-                        var count = data.total_found || data.results.length;
-                        appendMessage('bot', '<strong>' + count + ' product' + (count !== 1 ? 's' : '') + ' found</strong>' +
-                            (data.filters_applied ? ' <span style="color:#666;font-size:12px;">(' + data.filters_applied.join(', ') + ')</span>' : ''));
-                        data.results.forEach(function (product) {
-                            appendCard(renderProductCard(product));
-                        });
-                    } else {
-                        appendCard(renderVoiceFallbackCard(data.transcript || '', data));
-                    }
-
-                } catch (err) {
-                    console.error('Voice search error:', err);
-                    appendMessage('bot', 'Voice search failed. Try typing instead.');
+                // Voice control verbs (send / hang up / filter toggles / modal opens)
+                if (checkVoiceCommands(transcript)) {
+                    userInput.value = '';
+                    return;
                 }
 
-                userInput.placeholder = 'Ask about a part, chemical, or product...';
+                // Mark this turn as voice so the bot reply will be spoken via TTS
+                lastInteractionWasVoice = true;
+                userInput.value = '';
+                // Send through the SAME pipeline typed input uses → router intent
+                // branching (part lookup, chemical, manufacturer, stock, compare, etc.)
+                sendMessage(transcript);
             };
 
-            voiceMediaRecorder.start();
-            isListening = true;
-            micBtn.classList.add('listening');
-            var micStatus = document.getElementById('micStatus');
-            if (micStatus) micStatus.style.display = 'block';
-            userInput.placeholder = 'Listening... tap mic to stop'
+            voiceRecognition.start();
         } catch (err) {
-            console.error('Mic access error:', err);
-            appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
+            console.error('startListening error:', err);
+            appendMessage('bot', 'Could not start voice. Try typing instead.');
+            stopListening();
         }
     }
 
     function stopListening() {
+        if (voiceRecognition) {
+            try { voiceRecognition.stop(); } catch (e) {}
+        }
         isListening = false;
         micBtn.classList.remove('listening');
-        var micStatus = document.getElementById('micStatus');
-        if (micStatus) micStatus.style.display = 'none';
+        var ms = document.getElementById('micStatus');
+        if (ms) ms.style.display = 'none';
         userInput.placeholder = 'Ask about a part, chemical, or product...';
-        if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
-            voiceMediaRecorder.stop();
+    }
+
+    // ── Whisper fallback (Firefox / Safari etc.) ──
+    async function startListeningWhisperFallback() {
+        try {
+            var stream = await navigator.mediaDevices.getUserMedia({
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
+            });
+            var chunks = [];
+            var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            var mr = new MediaRecorder(stream, { mimeType: mimeType });
+            mr.ondataavailable = function (e) { if (e.data.size > 0) chunks.push(e.data); };
+            mr.onstop = async function () {
+                stream.getTracks().forEach(function (t) { t.stop(); });
+                isListening = false;
+                micBtn.classList.remove('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'none';
+                userInput.placeholder = 'Ask about a part, chemical, or product...';
+                if (!chunks.length) return;
+                var blob = new Blob(chunks, { type: mr.mimeType });
+                lastInteractionWasVoice = true;
+                try {
+                    var fd = new FormData();
+                    fd.append('file', blob, 'recording.webm');
+                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: fd });
+                    if (!resp.ok) { appendMessage('bot', 'Voice search failed.'); return; }
+                    var data = await resp.json();
+                    if (data && data.transcript) {
+                        if (checkVoiceCommands(data.transcript)) return;
+                        sendMessage(data.transcript);
+                    }
+                } catch (e) {
+                    console.error('Whisper fallback error:', e);
+                    appendMessage('bot', 'Voice search failed. Try typing instead.');
+                }
+            };
+            mr.start();
+            isListening = true;
+            micBtn.classList.add('listening');
+            var ms2 = document.getElementById('micStatus');
+            if (ms2) ms2.style.display = 'block';
+            userInput.placeholder = 'Listening… tap mic to stop';
+            // Hard cap at 8s for the fallback path
+            setTimeout(function () { if (mr.state === 'recording') mr.stop(); }, 8000);
+            // Expose stop hook for the manual button
+            voiceRecognition = { stop: function () { if (mr.state === 'recording') mr.stop(); } };
+        } catch (err) {
+            console.error('Whisper fallback mic error:', err);
+            appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
         }
     }
 
-    // Text-to-Speech — read bot responses aloud
-    function speakResponse(text) {
-        if (!voiceSynth || !text) return;
-        voiceSynth.cancel();
+    // ── Text-to-Speech ──
+    function pickVoice() {
+        if (cachedPreferredVoice) return cachedPreferredVoice;
+        cachedVoices = (voiceSynth && voiceSynth.getVoices()) || [];
+        cachedPreferredVoice = cachedVoices.find(function (v) {
+            return v.name.indexOf('Google') !== -1 || v.name.indexOf('Samantha') !== -1 || v.name.indexOf('Zira') !== -1;
+        }) || null;
+        return cachedPreferredVoice;
+    }
 
+    function speakResponse(text, onDone) {
+        if (!voiceSynth || !text) { if (onDone) onDone(); return; }
+        voiceSynth.cancel();
         var clean = text
             .replace(/\*\*/g, '')
             .replace(/\[V25 FILTERS\]/g, '')
@@ -3537,41 +3585,46 @@
             .replace(/\n/g, '. ')
             .replace(/\s+/g, ' ')
             .trim();
-
-        if (clean.length > 500) {
-            clean = clean.substring(0, 500) + '. See results above for full details.';
-        }
-
-        var utterance = new SpeechSynthesisUtterance(clean);
-        utterance.lang = 'en-US';
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
-
-        var voices = voiceSynth.getVoices();
-        var preferred = voices.find(function (v) {
-            return v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira');
-        });
-        if (preferred) utterance.voice = preferred;
-
-        voiceSynth.speak(utterance);
+        if (clean.length < 2) { if (onDone) onDone(); return; }
+        if (clean.length > 500) clean = clean.substring(0, 500) + '. See results above for full details.';
+        var u = new SpeechSynthesisUtterance(clean);
+        u.lang = 'en-US';
+        u.rate = 1.05;
+        u.pitch = 1.0;
+        var pv = pickVoice();
+        if (pv) u.voice = pv;
+        u.onend = function () { if (onDone) onDone(); };
+        u.onerror = function () { if (onDone) onDone(); };
+        voiceSynth.speak(u);
     }
 
-    // Hook: speak bot response when voice was used
+    // Hook: speak bot replies when last turn was voice. Skip empty/tiny strings,
+    // and only clear the flag once we've actually queued speech (so a "1 product
+    // found" header bubble doesn't burn the flag before the real card lands).
     var origAppendMessage = appendMessage;
     appendMessage = function (role, html) {
         origAppendMessage(role, html);
-        if (role === 'bot' && lastInteractionWasVoice) {
-            var plainText = html.replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').trim();
-            speakResponse(plainText);
-            lastInteractionWasVoice = false;
-        }
+        if (role !== 'bot' || !lastInteractionWasVoice) return;
+        var plainText = String(html).replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
+        if (plainText.length < 8) return;
+        lastInteractionWasVoice = false;
+        speakResponse(plainText, function () {
+            // Continuous echo: re-arm the mic after the bot finishes speaking
+            if (window.voiceEchoContinuous && !isListening) {
+                setTimeout(startListening, 250);
+            }
+        });
     };
 
-    // Preload voices (Chrome needs this)
+    // Preload voices (Chrome quirk) and cache the preferred pick
     if (voiceSynth) {
-        voiceSynth.getVoices();
+        cachedVoices = voiceSynth.getVoices() || [];
         if (voiceSynth.onvoiceschanged !== undefined) {
-            voiceSynth.onvoiceschanged = function () { voiceSynth.getVoices(); };
+            voiceSynth.onvoiceschanged = function () {
+                cachedVoices = voiceSynth.getVoices() || [];
+                cachedPreferredVoice = null;
+                pickVoice();
+            };
         }
     }
 
