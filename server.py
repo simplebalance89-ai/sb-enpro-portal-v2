@@ -252,45 +252,10 @@ async def chat(req: ChatRequest):
 @app.post("/api/chat-v2")
 async def chat_conversational(req: ChatRequest):
     """
-    NEW v2.16: Conversational chat endpoint.
-    Uses legacy router but with conversational response formatting.
+    v2.16: Chat endpoint - uses same logic as /api/chat for stability.
     """
-    if not state.data_loaded:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Data not loaded yet. Try again in a moment."},
-        )
-    
-    try:
-        # Use the proven legacy handler
-        result = await handle_message(
-            message=req.message,
-            session_id=req.session_id,
-            mode=req.mode,
-            df=state.df,
-            chemicals_df=state.chemicals_df,
-        )
-        
-        # Add conversational wrapper if it's a simple response
-        if "response" in result and "intent" in result:
-            response_text = result["response"]
-            # Make it more conversational - remove command prompts
-            response_text = response_text.replace("say lookup", "ask me")
-            response_text = response_text.replace("say price", "ask about pricing")
-            response_text = response_text.replace("say compare", "ask to compare")
-            result["response"] = response_text
-        
-        result["quote_state"] = snapshot_quote_state(req.session_id)
-        return result
-    except Exception as e:
-        logger.error(f"Chat error: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "response": "I'm having trouble right now. Check in with the office for assistance.",
-                "error": str(e),
-            },
-        )
+    # Just call the working chat endpoint directly
+    return await chat(req)
 
 
 @app.post("/api/lookup")

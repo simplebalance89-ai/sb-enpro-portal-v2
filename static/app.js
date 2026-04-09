@@ -434,7 +434,7 @@
         var queryStart = Date.now();
 
         try {
-            const res = await fetch(API_BASE + '/api/chat-v2', {
+            const res = await fetch(API_BASE + '/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text, session_id: sessionId })
@@ -2984,7 +2984,7 @@
         var queryStart = Date.now();
 
         try {
-            var res = await fetch(API_BASE + '/api/chat-v2', {
+            var res = await fetch(API_BASE + '/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text, session_id: sessionId, mode: 'ask_john' })
