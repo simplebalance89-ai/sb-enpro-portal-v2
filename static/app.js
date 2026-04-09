@@ -4110,7 +4110,7 @@
         origAppendMessage(role, html);
         if (role === 'bot' && lastInteractionWasVoice) {
             var plainText = html.replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').trim();
-            speakResponse(plainText);
+            // speakResponse(plainText);  // TTS disabled v2.16
             lastInteractionWasVoice = false;
         }
     };
