@@ -563,6 +563,7 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
         leftover = [
             p for p in (result.get("products") or [])
             if str((p.get("Part_Number") or p.get("Alt_Code") or "")).strip().upper() not in rendered_pns
+            and int(float(p.get("Total_Stock", 0) or 0)) > 0  # Only show in-stock items
         ]
         if leftover:
             yield _sse_event("other", {"products": leftover[:3]})

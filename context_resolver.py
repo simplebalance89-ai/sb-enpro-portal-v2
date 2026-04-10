@@ -82,7 +82,7 @@ class ContextResolver:
         Resolve all context from a raw user message.
         Returns structured analysis with resolved entities.
         """
-        msg_lower = message.lower()
+        msg_lower = message.lower().strip()
 
         analysis = {
             "raw_message": message,
@@ -92,7 +92,30 @@ class ContextResolver:
             "referenced_application": None,
             "is_validation_question": False,
             "has_coreference": False,
+            "is_follow_up_answer": False,
         }
+
+        # 0. Detect follow-up answers (short responses to system questions)
+        # If previous turn asked a question and this is a short answer (1-3 words),
+        # treat as answer-to-follow-up, not a new search
+        words = message.strip().split()
+        if len(words) <= 3 and session_id:
+            last_follow_up = await self._get_last_follow_up(session_id)
+            if last_follow_up:
+                # This is an answer, not a new search
+                analysis["is_follow_up_answer"] = True
+                # Get the parts from the previous turn
+                parts = await self.memory.resolve_coreference(session_id, "those")
+                if parts:
+                    analysis["referenced_parts"] = parts
+                    analysis["has_coreference"] = True
+                parts_context = f" (previously discussed: {', '.join(parts)})" if parts else ""
+                analysis["resolved_message"] = (
+                    f"{message} [Context: answering follow-up question '{last_follow_up}'{parts_context}]"
+                )
+                analysis["intent"] = "answer_follow_up"
+                logger.info(f"Follow-up answer detected: '{message}' → answering '{last_follow_up}'")
+                return analysis
 
         # 1. Detect pronouns
         has_pronoun = any(p in msg_lower for p in PRONOUN_PATTERNS)
@@ -179,6 +202,25 @@ class ContextResolver:
             }
 
         return {"fits": True, "reason": "Meets requirements", "part": part, "alternatives": []}
+
+    async def _get_last_follow_up(self, session_id: str) -> Optional[str]:
+        """Check if the last assistant turn ended with a follow-up question."""
+        try:
+            history = await self.memory.get_recent_history(session_id, max_messages=2)
+            for turn in reversed(history):
+                if turn.get("role") == "assistant":
+                    content = turn.get("content", "")
+                    # Check if it ends with a question
+                    if content.rstrip().endswith("?"):
+                        # Extract the last sentence (the question)
+                        sentences = content.rstrip().split(".")
+                        last = sentences[-1].strip() if sentences else content
+                        if "?" in last:
+                            return last
+                    return None
+        except Exception as e:
+            logger.error(f"Follow-up check failed: {e}")
+        return None
 
     async def _find_alternatives(
         self, application: str, exclude_pn: str, df=None
