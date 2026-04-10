@@ -28,7 +28,7 @@ from azure.storage.blob import BlobServiceClient
 
 # ----- Config -----
 SEARCH_ENDPOINT = os.environ.get("AZURE_SEARCH_ENDPOINT", "https://enpro-ai-search.search.windows.net")
-SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY", "H7WUyCaQiPJ0GWni6lTNSEbYRQusv3cDSRGCCGobFdAzSeBYqccF")
+SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY", "")
 SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX", "enpro-products")
 
 STORAGE_CONN = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
