@@ -96,6 +96,15 @@ async def append_message(
     }
     if products:
         doc["products_json"] = products
+        # Extract part numbers for coreference resolution
+        recommended = []
+        for p in products:
+            if isinstance(p, dict):
+                pn = p.get("Part_Number") or p.get("part_number") or p.get("Alt_Code") or ""
+                if pn:
+                    recommended.append(str(pn).strip())
+        if recommended:
+            doc["recommended_parts"] = recommended
 
     try:
         container.upsert_item(doc)
@@ -124,7 +133,7 @@ async def get_recent_history(
         return []
 
     query = (
-        "SELECT c.role, c.content, c.created_at, c.products_json "
+        "SELECT c.role, c.content, c.created_at, c.products_json, c.recommended_parts "
         "FROM c WHERE c.session_id = @sid "
         "ORDER BY c.created_at DESC OFFSET 0 LIMIT @limit"
     )
@@ -155,6 +164,43 @@ async def get_recent_history(
             msg["products"] = item["products_json"]
         out.append(msg)
     return out
+
+
+async def resolve_coreference(session_id: str, message: str) -> Optional[List[str]]:
+    """
+    Resolve 'those', 'these', 'them', 'compare those' to actual part numbers
+    from the most recent assistant turn in this session.
+    """
+    pronouns = ["those", "these", "them", "they", "compare those", "compare them",
+                "those filters", "these parts", "those parts"]
+    msg_lower = message.lower()
+    if not any(p in msg_lower for p in pronouns):
+        return None
+
+    container = _get_container()
+    if not container:
+        return None
+
+    query = (
+        "SELECT c.recommended_parts FROM c "
+        "WHERE c.session_id = @sid AND c.role = 'assistant' "
+        "ORDER BY c.created_at DESC OFFSET 0 LIMIT 1"
+    )
+    params = [{"name": "@sid", "value": session_id}]
+
+    try:
+        items = list(container.query_items(
+            query=query, parameters=params, partition_key=session_id
+        ))
+        for item in items:
+            parts = item.get("recommended_parts", [])
+            if parts:
+                logger.info(f"Coreference resolved: {parts}")
+                return parts
+    except Exception as e:
+        logger.error(f"Coreference resolution failed: {e}")
+
+    return None
 
 
 async def clear_session_history(session_id: str) -> int:
