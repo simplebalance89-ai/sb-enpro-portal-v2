@@ -214,7 +214,7 @@ class EnproMastermindV3:
                     {"role": "user", "content": message}
                 ],
                 temperature=0.0,
-                max_tokens=20
+                max_completion_tokens=20
             )
             
             category = response.choices[0].message.content.strip().upper()
@@ -311,7 +311,7 @@ class EnproMastermindV3:
                 {"role": "system", "content": "You are Enpro's filtration expert. Answer briefly and helpfully. 2-3 sentences max."},
                 {"role": "user", "content": message}
             ],
-            max_tokens=150
+            max_completion_tokens=150
         )
         
         return {

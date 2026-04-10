@@ -32,9 +32,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 # NEW: v3.0 Unified Backend (add this)
 if settings.USE_UNIFIED_HANDLER:
     from mastermind_v3_prod import router as mastermind_router, init_mastermind
+    import mastermind_v3_prod as _v3_module
     logger.info("Using unified handler v3.0")
 else:
     mastermind_router = None
+    _v3_module = None
     logger.info("Using legacy router")
 from governance import run_pre_checks
 from quote_state import (
@@ -360,6 +362,26 @@ async def _persist_turn(
         logger.error(f"Failed to persist conversation turn: {e}")
 
 
+async def _v3_handle_message(message: str, session_id: str, history=None):
+    """Route through v3 mastermind and translate response to legacy format."""
+    if _v3_module and _v3_module.mastermind:
+        v3_result = await _v3_module.mastermind.chat(message=message, history=history or [])
+        # Translate v3 response to legacy format expected by old UI
+        return {
+            "response": v3_result.get("to_user", ""),
+            "intent": v3_result.get("response_type", "general"),
+            "structured": bool(v3_result.get("headline")),
+            "headline": v3_result.get("headline"),
+            "body": v3_result.get("to_user", ""),
+            "picks": v3_result.get("picks", []),
+            "follow_up": v3_result.get("follow_up_question"),
+            "products": v3_result.get("picks", []),
+            "model_used": v3_result.get("model_used", "unknown"),
+            "cost": v3_result.get("cost", 0),
+        }
+    return None
+
+
 @app.post("/api/chat")
 @limiter.limit("20/minute")
 async def chat(request: Request, req: ChatRequest):
@@ -387,15 +409,18 @@ async def chat(request: Request, req: ChatRequest):
 
     try:
         update_from_message(req.session_id, req.message, state.df)
-        result = await handle_message(
-            message=req.message,
-            session_id=req.session_id,
-            mode=req.mode,
-            df=state.df,
-            chemicals_df=state.chemicals_df,
-            history=history or None,
-            user_rep_id=user_rep_id,
-        )
+        # Try v3 mastermind first, fall back to legacy
+        result = await _v3_handle_message(req.message, req.session_id, history)
+        if result is None:
+            result = await handle_message(
+                message=req.message,
+                session_id=req.session_id,
+                mode=req.mode,
+                df=state.df,
+                chemicals_df=state.chemicals_df,
+                history=history or None,
+                user_rep_id=user_rep_id,
+            )
         result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
@@ -461,15 +486,18 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
     # Run the handler — this is the blocking GPT call
     try:
         update_from_message(req.session_id, req.message, state.df)
-        result = await handle_message(
-            message=req.message,
-            session_id=req.session_id,
-            mode=req.mode,
-            df=state.df,
-            chemicals_df=state.chemicals_df,
-            history=history or None,
-            user_rep_id=user_rep_id,
-        )
+        # Try v3 mastermind first, fall back to legacy
+        result = await _v3_handle_message(req.message, req.session_id, history)
+        if result is None:
+            result = await handle_message(
+                message=req.message,
+                session_id=req.session_id,
+                mode=req.mode,
+                df=state.df,
+                chemicals_df=state.chemicals_df,
+                history=history or None,
+                user_rep_id=user_rep_id,
+            )
         result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Stream chat error: {e}", exc_info=True)
