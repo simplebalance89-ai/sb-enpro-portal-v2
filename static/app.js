@@ -1676,51 +1676,55 @@
         return html;
     };
 
-    // ── Render side-by-side comparison table ──
+    // ── Render side-by-side comparison (two cards) ──
     window.renderCompareTable = function(products) {
-        var html = '<div class="chemical-card">';
-        html += '<div class="chemical-card-header">Side-by-Side Comparison</div>';
-        html += '<div class="chemical-card-body" style="padding:0;">';
+        var prods = products.slice(0, 2); // Max 2 for side-by-side
         
-        // Build comparison rows
-        var specs = [
-            {key: 'Part_Number', label: 'Part Number'},
-            {key: 'Description', label: 'Description'},
-            {key: 'Final_Manufacturer', label: 'Manufacturer'},
-            {key: 'Micron', label: 'Micron'},
-            {key: 'Media', label: 'Media'},
-            {key: 'Max_Temp_F', label: 'Max Temp'},
-            {key: 'Max_PSI', label: 'Max PSI'},
-            {key: 'Price', label: 'Price'},
-            {key: 'Total_Stock', label: 'Stock'}
-        ];
+        var html = '<div style="margin:12px 0;">';
+        html += '<div style="font-weight:600; font-size:14px; margin-bottom:10px; color:var(--text);">Side-by-Side Comparison</div>';
         
-        html += '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+        // Two-column layout
+        html += '<div style="display:flex; gap:12px; align-items:stretch;">';
         
-        // Header row with part numbers
-        html += '<tr style="background:var(--navy); color:white;">';
-        html += '<th style="padding:10px; text-align:left; border:1px solid var(--border);">Spec</th>';
-        products.slice(0, 3).forEach(function(p) {
-            html += '<th style="padding:10px; text-align:left; border:1px solid var(--border);">' + esc(p.Part_Number || p.part_number || '?') + '</th>';
-        });
-        html += '</tr>';
-        
-        // Spec rows
-        specs.forEach(function(spec, idx) {
-            html += '<tr style="background:' + (idx % 2 === 0 ? 'white' : 'var(--bg)') + '">';
-            html += '<td style="padding:8px 10px; border:1px solid var(--border); font-weight:600;">' + spec.label + '</td>';
-            products.slice(0, 3).forEach(function(p) {
-                var val = p[spec.key] || p[spec.key.toLowerCase()] || '—';
-                if (spec.key === 'Total_Stock') {
-                    val = val > 0 ? val + ' units' : 'Out of stock';
-                }
-                html += '<td style="padding:8px 10px; border:1px solid var(--border);">' + esc(String(val)) + '</td>';
+        prods.forEach(function(p, idx) {
+            var pn = p.Part_Number || p.part_number || 'Product ' + (idx + 1);
+            var isFirst = idx === 0;
+            var borderColor = isFirst ? '#3b82f6' : '#10b981'; // Blue vs Green
+            
+            html += '<div style="flex:1; min-width:0; border:2px solid ' + borderColor + '; border-radius:10px; background:var(--card-bg); overflow:hidden;">';
+            
+            // Header with part number
+            html += '<div style="background:' + borderColor + '; color:white; padding:10px 12px; font-weight:600; font-size:14px;">';
+            html += esc(String(pn));
+            html += '</div>';
+            
+            // Body with specs
+            html += '<div style="padding:12px;">';
+            
+            var fields = [
+                ['Description', p.Description || p.description || '—'],
+                ['Manufacturer', p.Final_Manufacturer || p.Manufacturer || p.manufacturer || '—'],
+                ['Micron', p.Micron || p.micron || '—'],
+                ['Media', p.Media || p.media || '—'],
+                ['Max Temp', p.Max_Temp_F || p.max_temp_f ? (p.Max_Temp_F || p.max_temp_f) + '°F' : '—'],
+                ['Max PSI', p.Max_PSI || p.max_psi ? (p.Max_PSI || p.max_psi) + ' PSI' : '—'],
+                ['Price', p.Price || p.price ? '$' + (p.Price || p.price) : '—'],
+                ['Stock', (p.Total_Stock || p.total_stock || 0) > 0 ? (p.Total_Stock || p.total_stock) + ' units' : 'Out of stock']
+            ];
+            
+            fields.forEach(function(f) {
+                html += '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border);">';
+                html += '<span style="color:var(--text-light); font-size:12px;">' + f[0] + '</span>';
+                html += '<span style="font-weight:500; font-size:12px; text-align:right; max-width:60%;">' + esc(String(f[1])) + '</span>';
+                html += '</div>';
             });
-            html += '</tr>';
+            
+            html += '</div>'; // body
+            html += '</div>'; // card
         });
         
-        html += '</table>';
-        html += '</div></div>';
+        html += '</div>'; // flex container
+        html += '</div>';
         return html;
     };
 
