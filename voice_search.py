@@ -840,6 +840,25 @@ async def voice_search_pipeline(transcript: str, df: pd.DataFrame) -> dict:
     # Step 1: Simple cleanup - just lowercase and strip
     cleaned = transcript.lower().strip().rstrip('.')
     
+    # Detect pregame/application intent (meeting prep requests)
+    pregame_keywords = ['meeting', 'prep me', 'prepping', 'customer tomorrow', 'call tomorrow', 
+                        'meeting a', 'customer in', 'operator tomorrow', 'brewery', 'pharma', 
+                        'data center', 'hvac', 'hydraulic', 'wastewater', 'food processing']
+    is_pregame = any(kw in cleaned for kw in pregame_keywords)
+    
+    # If pregame detected, return flag for frontend to route to chat endpoint
+    if is_pregame:
+        return {
+            "results": [],
+            "total_found": 0,
+            "transcript": transcript,
+            "cleaned_transcript": cleaned,
+            "search_type": "voice_pregame",
+            "intent": "pregame",
+            "overall_confidence": 0.0,
+            "suggestions": [],
+        }
+    
     # Step 2: Fast path — direct part number detection (try raw first, then cleaned)
     part_num = detect_part_number(transcript)
     if not part_num:

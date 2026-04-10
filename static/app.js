@@ -4049,6 +4049,14 @@
                         }
                     }
 
+                    // Voice detected pregame intent - route to chat endpoint for full pregame
+                    if (data.search_type === 'voice_pregame' || data.intent === 'pregame') {
+                        userInput.placeholder = 'Processing...';
+                        // Send transcript through chat endpoint for pregame handling
+                        sendMessage(data.transcript);
+                        return;
+                    }
+
                     // Show confidence suggestions only when we are at/above the 90% gate.
                     if (data.suggestions && data.suggestions.length > 0) {
                         var strongSuggestions = data.suggestions.filter(function (s) {
