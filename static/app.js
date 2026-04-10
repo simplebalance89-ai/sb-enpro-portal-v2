@@ -2454,22 +2454,21 @@
         text = text.replace(/\[CRITICAL DATA INTEGRITY RULE\][\s\S]*?\[USER MESSAGE\]:/g, '');
         // Strip follow-up option lines that GPT includes as text
         text = text.replace(/^.*(?:Application Guidance|quote ready|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:quote ready|help|lookup|price|compare|manufacturer|chemical|application)[,\s]*(?:help)?\.?\s*$/gim, '');
-        // Clean up stray markdown artifacts
-        text = text.replace(/^\s*[-•–]\s*/gm, '');  // Strip leading dashes/bullets
-        text = text.replace(/^\s*#{1,3}\s+/gm, '');  // Strip heading markers
+        // Strip ALL markdown formatting — render clean, consistent plain text
+        text = text.replace(/^\s*#{1,6}\s+/gm, '');      // Strip heading markers
+        text = text.replace(/\*\*(.+?)\*\*/g, '$1');      // Bold → plain text
+        text = text.replace(/__(.+?)__/g, '$1');           // Bold alt → plain text
+        text = text.replace(/\*(.+?)\*/g, '$1');           // Italic → plain text
+        text = text.replace(/_([^_\s][^_]*[^_\s])_/g, '$1'); // Italic alt → plain text
+        text = text.replace(/`(.+?)`/g, '$1');             // Inline code → plain text
+        text = text.replace(/^\s*[-•–]\s+/gm, '- ');      // Normalize bullets to simple dash
         text = text.replace(/\s{2,}/g, ' ');
         var s = esc(text);
-        // Bold
-        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        // Strip remaining stray stars
+        // Strip any remaining stray markdown chars
         s = s.replace(/\*/g, '');
-        // Inline code
-        s = s.replace(/`(.+?)`/g, '<code>$1</code>');
-        // Numbered lists — add proper spacing
-        s = s.replace(/(\d+)\.\s+/g, '<br>$1. ');
         // Line breaks
         s = s.replace(/\n/g, '<br>');
-        // Clean double breaks
+        // Clean excessive breaks
         s = s.replace(/(<br\s*\/?>){3,}/g, '<br><br>');
         return s;
     }
