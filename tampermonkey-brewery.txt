@@ -1,0 +1,54 @@
+// ==UserScript==
+// @name         EnPro Convo 1 Brewery
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  4 turn conversation brewery
+// @match        https://enpro-fm-portal-v215-staging.onrender.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    
+    var btn = document.createElement('button');
+    btn.innerHTML = 'Run Convo 1';
+    btn.style.position = 'fixed';
+    btn.style.top = '80px';
+    btn.style.right = '20px';
+    btn.style.zIndex = '9999';
+    btn.style.padding = '12px 20px';
+    btn.style.background = '#0066CC';
+    btn.style.color = 'white';
+    btn.style.border = 'none';
+    btn.style.borderRadius = '8px';
+    btn.style.cursor = 'pointer';
+    
+    btn.onclick = function() {
+        btn.disabled = true;
+        
+        setTimeout(function() {
+            document.getElementById('userInput').value = 'brewery customer meeting tomorrow';
+            document.getElementById('userInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+        }, 100);
+        
+        setTimeout(function() {
+            document.getElementById('userInput').value = 'using 5 micron inconsistent batches';
+            document.getElementById('userInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+        }, 8000);
+        
+        setTimeout(function() {
+            document.getElementById('userInput').value = 'compare 12247 vs HTS1P2PP-H';
+            document.getElementById('userInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+        }, 16000);
+        
+        setTimeout(function() {
+            document.getElementById('userInput').value = 'lead time Pall option';
+            document.getElementById('userInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+        }, 24000);
+    };
+    
+    setTimeout(function() {
+        document.body.appendChild(btn);
+    }, 2000);
+    
+})();
