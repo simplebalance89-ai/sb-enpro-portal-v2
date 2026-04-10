@@ -3986,23 +3986,29 @@
         btn.style.pointerEvents = 'none';
     };
 
-    // ── Voice Agent (MediaRecorder → Server STT → Voice Search) ──
+    // ── Voice Agent (Web Speech API → existing chat pipeline) ──
+    // Streaming browser STT (Chrome/Edge). Whisper upload kept as fallback for
+    // browsers without webkitSpeechRecognition. Final transcript flows through
+    // sendMessage() so it hits the SAME router/intent branching as typed input.
     var micBtn = document.getElementById('micBtn');
     var isListening = false;
     var voiceSynth = window.speechSynthesis;
     var lastInteractionWasVoice = false;
-    var voiceMediaRecorder = null;
-    var voiceAudioChunks = [];
+    var voiceRecognition = null;
+    var voiceFinalTranscript = '';
+    var cachedVoices = [];
+    var cachedPreferredVoice = null;
+    window.voiceEchoContinuous = true; // re-arm mic after TTS finishes
 
     // Global search settings
     window.searchSettings = {
         inStockOnly: false
     };
-    
+
     // Check for voice commands (trigger modals, send, hang up, toggles)
     function checkVoiceCommands(transcript) {
         var lower = transcript.toLowerCase().trim();
-        
+
         // Modal triggers
         if (/^(look up|lookup)\s+(part|part number)/.test(lower)) {
             showModal('lookup');
@@ -4017,56 +4023,44 @@
             return true;
         }
 
-        
         // Filter toggles
         if (/^(in stock|only in stock|show in stock)$/.test(lower)) {
-            appendMessage('bot', '<em>Filter set: In Stock only</em>');
+            document.getElementById('inStockFilter').checked = true;
+            window.searchSettings.inStockOnly = true;
+            appendMessage('bot', 'Filter set: In Stock only');
             return true;
         }
         if (/^(all stock|show all|any stock)$/.test(lower)) {
-            appendMessage('bot', '<em>Filter set: All products</em>');
+            document.getElementById('inStockFilter').checked = false;
+            window.searchSettings.inStockOnly = false;
+            appendMessage('bot', 'Filter set: All products');
             return true;
         }
-        
-        // Send command - works like clicking the send button
+
+        // Send command
         if (/^send$|^send it$|^submit$/.test(lower)) {
-            stopListening(); // Stop mic first
+            stopListening();
             var input = document.getElementById('userInput');
             if (input && input.value.trim()) {
                 var text = input.value.trim();
                 input.value = '';
-                // Small delay to let mic stop
-                setTimeout(function() {
-                    sendMessage(text);
-                }, 100);
+                setTimeout(function() { sendMessage(text); }, 100);
             }
             return true;
         }
-        
-        // Hang up - cancels mic, clears input, no message sent
+
+        // Hang up
         if (/^hang up$|^cancel$|^clear$|^never mind$|^nevermind$/.test(lower)) {
-            stopListening(); // Stop mic immediately
+            stopListening();
             var input = document.getElementById('userInput');
             if (input) input.value = '';
-            // Don't show any message, just silently cancel
             return true;
         }
-        
-        return false; // Not a command, process normally
+
+        return false;
     }
 
-    // Single-flight guard for voice transcription requests. Without this,
-    // rapid mic clicks queue parallel /api/voice-search posts and rack up
-    // Whisper 429s. window.__fmVoiceBusy is set true the moment a recording
-    // is being uploaded, cleared when the response (or error) comes back.
-    window.__fmVoiceBusy = false;
-
     window.toggleVoice = function () {
-        if (window.__fmVoiceBusy) {
-            // Already processing a previous capture — ignore the click instead
-            // of stacking another in-flight request.
-            return;
-        }
         if (isListening) {
             stopListening();
         } else {
@@ -4074,163 +4068,167 @@
         }
     };
 
-    async function startListening() {
-        try {
-            var stream = await navigator.mediaDevices.getUserMedia({
-                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
-            });
-            voiceAudioChunks = [];
-            var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-            voiceMediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+    function getRecognitionCtor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
 
-            voiceMediaRecorder.ondataavailable = function (e) {
-                if (e.data.size > 0) voiceAudioChunks.push(e.data);
+    async function startListening() {
+        var Ctor = getRecognitionCtor();
+        if (!Ctor) {
+            // Fallback: legacy Whisper upload path for browsers without Web Speech API
+            return startListeningWhisperFallback();
+        }
+        // Don't open the mic while TTS is still speaking — avoids self-echo
+        if (voiceSynth && voiceSynth.speaking) {
+            voiceSynth.addEventListener('end', function once() {
+                voiceSynth.removeEventListener('end', once);
+                startListening();
+            }, { once: true });
+            return;
+        }
+        try {
+            voiceRecognition = new Ctor();
+            voiceRecognition.lang = 'en-US';
+            voiceRecognition.continuous = false;
+            voiceRecognition.interimResults = true;
+            voiceRecognition.maxAlternatives = 1;
+            voiceFinalTranscript = '';
+
+            voiceRecognition.onstart = function () {
+                isListening = true;
+                micBtn.classList.add('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'block';
+                userInput.placeholder = 'Listening... speak now';
             };
 
-            voiceMediaRecorder.onstop = async function () {
-                stream.getTracks().forEach(function (t) { t.stop(); });
-                if (voiceAudioChunks.length === 0) { return; }
+            voiceRecognition.onresult = function (ev) {
+                var interim = '';
+                for (var i = ev.resultIndex; i < ev.results.length; i++) {
+                    var r = ev.results[i];
+                    if (r.isFinal) voiceFinalTranscript += r[0].transcript;
+                    else interim += r[0].transcript;
+                }
+                // Live preview in the input box so the rep sees words land in real time
+                userInput.value = (voiceFinalTranscript + ' ' + interim).trim();
+            };
 
-                var blob = new Blob(voiceAudioChunks, { type: voiceMediaRecorder.mimeType });
-                voiceAudioChunks = [];
+            voiceRecognition.onerror = function (ev) {
+                console.warn('Voice recognition error:', ev.error);
+                if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+                    appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
+                } else if (ev.error !== 'no-speech' && ev.error !== 'aborted') {
+                    appendMessage('bot', 'Voice error: ' + ev.error + '. Try again or type instead.');
+                }
+                stopListening();
+            };
 
-                // Empty / silent capture guard: a typical webm audio frame is
-                // ~3KB+ even for a fraction of a second. Anything smaller is
-                // either nothing recorded or a near-silent click. Drop it
-                // before burning a Whisper call.
-                if (blob.size < 2048) {
-                    userInput.placeholder = 'Ask about a part, chemical, or product...';
-                    appendMessage('bot', "I didn't catch any audio — try holding the mic and speaking clearly.");
+            voiceRecognition.onend = function () {
+                var transcript = (voiceFinalTranscript || userInput.value || '').trim();
+                isListening = false;
+                micBtn.classList.remove('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'none';
+                userInput.placeholder = 'Ask about a part, chemical, or product...';
+
+                if (!transcript) return;
+
+                // Voice control verbs (send / hang up / filter toggles / modal opens)
+                if (checkVoiceCommands(transcript)) {
+                    userInput.value = '';
                     return;
                 }
 
-                // Show processing state and acquire the single-flight token
-                window.__fmVoiceBusy = true;
+                // Mark this turn as voice so the bot reply will be spoken via TTS
                 lastInteractionWasVoice = true;
-                userInput.placeholder = 'Processing voice...';
-                appendMessage('user','Voice search...');
-
-                try {
-                    var formData = new FormData();
-                    formData.append('file', blob, 'recording.webm');
-                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: formData });
-
-                    if (!resp.ok) {
-                        // Branch on status code so we can give a useful message
-                        // instead of "Voice search failed" for everything.
-                        if (resp.status === 429) {
-                            appendMessage('bot', 'Whisper is busy right now — give it a sec and try again.');
-                        } else if (resp.status === 400) {
-                            appendMessage('bot', "I couldn't make out the audio — try again, a little louder.");
-                        } else if (resp.status >= 500) {
-                            appendMessage('bot', 'Voice service is having a moment. Try again in a few seconds, or type it instead.');
-                        } else {
-                            appendMessage('bot', 'Voice search failed. Try again or type your query.');
-                        }
-                        userInput.placeholder = 'Ask about a part, chemical, or product...';
-                        return;
-                    }
-
-                    var data = await resp.json();
-
-                    // Show what was heard
-                    if (data.transcript) {
-                        appendMessage('bot', '<em>I heard: "' + esc(data.transcript) + '"</em>');
-                        
-                        // Check for voice commands
-                        var voiceCmd = checkVoiceCommands(data.transcript);
-                        if (voiceCmd) {
-                            // Command handled, stop processing
-                            return;
-                        }
-                    }
-
-                    // Voice detected pregame intent - route to chat endpoint for full pregame
-                    if (data.search_type === 'voice_pregame' || data.intent === 'pregame') {
-                        userInput.placeholder = 'Processing...';
-                        // Send transcript through chat endpoint for pregame handling
-                        sendMessage(data.transcript);
-                        return;
-                    }
-
-                    // Show confidence suggestions only when we are at/above the 90% gate.
-                    if (data.suggestions && data.suggestions.length > 0) {
-                        var strongSuggestions = data.suggestions.filter(function (s) {
-                            return (s.confidence || 0) >= 0.90;
-                        });
-
-                        if (strongSuggestions.length > 0) {
-                            var sugHtml = '<div class="voice-suggestions" style="background:#fff3cd;padding:8px 12px;border-radius:8px;margin:4px 0;font-size:13px;">';
-                            sugHtml += '<strong>Did you mean?</strong><br>';
-                            strongSuggestions.forEach(function (s) {
-                                sugHtml += '<span style="color:#856404;">' + esc(s.field) + ': ';
-                                sugHtml += '"' + esc(String(s.original)) + '" → <strong>' + esc(String(s.resolved)) + '</strong>';
-                                sugHtml += ' (' + Math.round(s.confidence * 100) + '%)</span><br>';
-                            });
-                            sugHtml += '</div>';
-                            appendMessage('bot', sugHtml);
-                        } else {
-                            var question = 'What did you want in inventory? Please repeat it more clearly.';
-                            appendCard(renderVoiceClarifyCard(question, ''));
-                        }
-                    }
-
-                    // Render product results using existing card renderer
-                    if (data.results && data.results.length > 0) {
-                        // New conversational layout (V2.6+):
-                        // 1. If the backend returned ranked recommendations
-                        //    with reasoning (Phase 2 GPT re-rank), show those
-                        //    FIRST as "the strongest fits" with the reason
-                        //    woven into the product card.
-                        // 2. Show remaining results below as "other options"
-                        //    so the rep can still scan more if they want.
-                        // 3. Drop the raw "1515 products found" header — that's
-                        //    the data dump Andrew called out as the core failure.
-                        renderVoiceResponse(data);
-                    } else {
-                        appendCard(renderVoiceFallbackCard(data.transcript || '', data));
-                    }
-
-                } catch (err) {
-                    console.error('Voice search error:', err);
-                    appendMessage('bot', 'Voice search failed. Try typing instead.');
-                } finally {
-                    // Always release the single-flight lock so the next mic
-                    // tap works even if the previous one threw.
-                    window.__fmVoiceBusy = false;
-                }
-
-                userInput.placeholder = 'Ask about a part, chemical, or product...';
+                userInput.value = '';
+                // Send through the SAME pipeline typed input uses
+                sendMessage(transcript);
             };
 
-            voiceMediaRecorder.start();
-            isListening = true;
-            micBtn.classList.add('listening');
-            var micStatus = document.getElementById('micStatus');
-            if (micStatus) micStatus.style.display = 'block';
-            userInput.placeholder = 'Listening... tap mic to stop'
+            voiceRecognition.start();
         } catch (err) {
-            console.error('Mic access error:', err);
-            appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
+            console.error('startListening error:', err);
+            appendMessage('bot', 'Could not start voice. Try typing instead.');
+            stopListening();
         }
     }
 
     function stopListening() {
+        if (voiceRecognition) {
+            try { voiceRecognition.stop(); } catch (e) {}
+        }
         isListening = false;
         micBtn.classList.remove('listening');
-        var micStatus = document.getElementById('micStatus');
-        if (micStatus) micStatus.style.display = 'none';
+        var ms = document.getElementById('micStatus');
+        if (ms) ms.style.display = 'none';
         userInput.placeholder = 'Ask about a part, chemical, or product...';
-        if (voiceMediaRecorder && voiceMediaRecorder.state === 'recording') {
-            voiceMediaRecorder.stop();
+    }
+
+    // ── Whisper fallback (Firefox / Safari — no Web Speech API) ──
+    async function startListeningWhisperFallback() {
+        try {
+            var stream = await navigator.mediaDevices.getUserMedia({
+                audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
+            });
+            var chunks = [];
+            var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            var mr = new MediaRecorder(stream, { mimeType: mimeType });
+            mr.ondataavailable = function (e) { if (e.data.size > 0) chunks.push(e.data); };
+            mr.onstop = async function () {
+                stream.getTracks().forEach(function (t) { t.stop(); });
+                isListening = false;
+                micBtn.classList.remove('listening');
+                var ms = document.getElementById('micStatus');
+                if (ms) ms.style.display = 'none';
+                userInput.placeholder = 'Ask about a part, chemical, or product...';
+                if (!chunks.length) return;
+                var blob = new Blob(chunks, { type: mr.mimeType });
+                lastInteractionWasVoice = true;
+                try {
+                    var fd = new FormData();
+                    fd.append('file', blob, 'recording.webm');
+                    var resp = await fetch(API_BASE + '/api/voice-search', { method: 'POST', body: fd });
+                    if (!resp.ok) { appendMessage('bot', 'Voice search failed. Try typing instead.'); return; }
+                    var data = await resp.json();
+                    if (data && data.transcript) {
+                        if (checkVoiceCommands(data.transcript)) return;
+                        sendMessage(data.transcript);
+                    }
+                } catch (e) {
+                    console.error('Whisper fallback error:', e);
+                    appendMessage('bot', 'Voice search failed. Try typing instead.');
+                }
+            };
+            mr.start();
+            isListening = true;
+            micBtn.classList.add('listening');
+            var ms2 = document.getElementById('micStatus');
+            if (ms2) ms2.style.display = 'block';
+            userInput.placeholder = 'Listening... tap mic to stop';
+            // Hard cap at 8s for the fallback path
+            setTimeout(function () { if (mr.state === 'recording') mr.stop(); }, 8000);
+            // Expose stop hook for the manual button
+            voiceRecognition = { stop: function () { if (mr.state === 'recording') mr.stop(); } };
+        } catch (err) {
+            console.error('Whisper fallback mic error:', err);
+            appendMessage('bot', 'Microphone access denied. Allow mic access in browser settings.');
         }
     }
 
-    // Text-to-Speech — read bot responses aloud
-    function speakResponse(text) {
-        if (!voiceSynth || !text) return;
-        voiceSynth.cancel();
+    // ── Text-to-Speech ──
+    function pickVoice() {
+        if (cachedPreferredVoice) return cachedPreferredVoice;
+        cachedVoices = (voiceSynth && voiceSynth.getVoices()) || [];
+        cachedPreferredVoice = cachedVoices.find(function (v) {
+            return v.name.indexOf('Google') !== -1 || v.name.indexOf('Samantha') !== -1 || v.name.indexOf('Zira') !== -1;
+        }) || null;
+        return cachedPreferredVoice;
+    }
 
+    function speakResponse(text, onDone) {
+        if (!voiceSynth || !text) { if (onDone) onDone(); return; }
+        voiceSynth.cancel();
         var clean = text
             .replace(/\*\*/g, '')
             .replace(/\[V25 FILTERS\]/g, '')
@@ -4240,41 +4238,44 @@
             .replace(/\n/g, '. ')
             .replace(/\s+/g, ' ')
             .trim();
-
-        if (clean.length > 500) {
-            clean = clean.substring(0, 500) + '. See results above for full details.';
-        }
-
-        var utterance = new SpeechSynthesisUtterance(clean);
-        utterance.lang = 'en-US';
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
-
-        var voices = voiceSynth.getVoices();
-        var preferred = voices.find(function (v) {
-            return v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira');
-        });
-        if (preferred) utterance.voice = preferred;
-
-        voiceSynth.speak(utterance);
+        if (clean.length < 2) { if (onDone) onDone(); return; }
+        if (clean.length > 500) clean = clean.substring(0, 500) + '. See results above for full details.';
+        var u = new SpeechSynthesisUtterance(clean);
+        u.lang = 'en-US';
+        u.rate = 1.05;
+        u.pitch = 1.0;
+        var pv = pickVoice();
+        if (pv) u.voice = pv;
+        u.onend = function () { if (onDone) onDone(); };
+        u.onerror = function () { if (onDone) onDone(); };
+        voiceSynth.speak(u);
     }
 
-    // Hook: speak bot response when voice was used
+    // Hook: speak bot replies when last turn was voice. Re-arm mic after TTS.
     var origAppendMessage = appendMessage;
     appendMessage = function (role, html) {
         origAppendMessage(role, html);
-        if (role === 'bot' && lastInteractionWasVoice) {
-            var plainText = html.replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').trim();
-            // speakResponse(plainText);  // TTS disabled v2.16
-            lastInteractionWasVoice = false;
-        }
+        if (role !== 'bot' || !lastInteractionWasVoice) return;
+        var plainText = String(html).replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
+        if (plainText.length < 8) return;
+        lastInteractionWasVoice = false;
+        speakResponse(plainText, function () {
+            // Continuous echo: re-arm the mic after the bot finishes speaking
+            if (window.voiceEchoContinuous && !isListening) {
+                setTimeout(startListening, 250);
+            }
+        });
     };
 
-    // Preload voices (Chrome needs this)
+    // Preload voices (Chrome quirk) and cache the preferred pick
     if (voiceSynth) {
-        voiceSynth.getVoices();
+        cachedVoices = voiceSynth.getVoices() || [];
         if (voiceSynth.onvoiceschanged !== undefined) {
-            voiceSynth.onvoiceschanged = function () { voiceSynth.getVoices(); };
+            voiceSynth.onvoiceschanged = function () {
+                cachedVoices = voiceSynth.getVoices() || [];
+                cachedPreferredVoice = null;
+                pickVoice();
+            };
         }
     }
 

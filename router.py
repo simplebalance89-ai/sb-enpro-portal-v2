@@ -43,6 +43,11 @@ _COREF_PATTERN = _coref_re.compile(
     r"\bwhat\s+did\s+you\s+say\s+(?:about|those|that|the\s+(?:first|second|third|last))\b|"
     r"\bshow\s+(?:that|those|it)\s+(?:to\s+me|again)\b|"
     r"\btell\s+me\s+(?:about\s+(?:it|that|those)|more)\b|"
+    # Stock / availability follow-ups — reference prior product context
+    r"\b(?:show|find|get|give)\s+(?:me\s+)?(?:some\s+)?(?:parts?|filters?|products?|options?|items?|part\s+numbers?)?\s*(?:that\s+are\s+|which\s+are\s+)?in\s+stock\b|"
+    r"\b(?:any|anything|something|what(?:'s|s)?)\s+(?:that(?:'s|s)?\s+)?(?:in\s+stock|available|in\s+inventory)\b|"
+    r"\bin\s+stock\s+(?:options?|alternatives?|parts?|filters?|products?)\b|"
+    r"\b(?:available|in\s+stock)\s+(?:now|today|instead)\b|"
     # Confirmation / continuation — short affirmatives that only make sense
     # against a prior offer. Anchored to start/end so they don't match inside
     # longer queries that happen to contain "yes" as a word.
@@ -1478,9 +1483,16 @@ async def _handle_gpt(
         except Exception as ci_err:
             logger.error(f"customer_intel fetch failed (non-fatal): {ci_err}")
 
+    # Detect "in stock" requests — force stock-only filtering
+    msg_lower = message.lower()
+    wants_in_stock = any(phrase in msg_lower for phrase in [
+        "in stock", "in-stock", "available now", "in inventory",
+        "that are available", "what's available", "whats available",
+    ])
+
     search_result = {"results": []}
     if search_query:
-        search_result = search_products(df, search_query, max_results=10, in_stock_only=False)
+        search_result = search_products(df, search_query, max_results=10, in_stock_only=wants_in_stock)
         if search_result.get("results"):
             # Sort: in-stock first, then by Total_Stock descending
             results = search_result["results"]
