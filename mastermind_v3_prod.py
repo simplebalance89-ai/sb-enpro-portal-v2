@@ -591,6 +591,7 @@ router = APIRouter(prefix="/api/v3")
 class ChatRequest(BaseModel):
     message: str
     session_id: str
+    user_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     response_type: str
