@@ -1401,7 +1401,8 @@ async def _handle_gpt(
             # No KB keyword match — give GPT top 5 in-stock to reason with
             in_stock = df[df.get('In_Stock', pd.Series([False]*len(df))) == True] if 'In_Stock' in df.columns else df
             sample_df = in_stock.head(5) if len(in_stock) > 0 else df.head(5)
-            sample_products = sample_df[['Part_Number', 'Description', 'Manufacturer', 'Product_Type', 'Micron', 'Media', 'Application']].fillna('').to_dict('records')
+            sample_cols = [c for c in ['Part_Number', 'Description', 'Final_Manufacturer', 'Product_Type', 'Micron', 'Media', 'Application'] if c in sample_df.columns]
+            sample_products = sample_df[sample_cols].fillna('').to_dict('records')
             products_context = json.dumps(sample_products, indent=2, default=str)
             context_parts.append(f"[TOP 5 IN-STOCK PRODUCTS — Use these to reason about the user's need and ask a strategic follow-up question]:\n{products_context}")
             search_query = None  # Let GPT reason
