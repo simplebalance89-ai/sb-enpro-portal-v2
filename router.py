@@ -1029,19 +1029,17 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
                     if sr.get("results"):
                         products.append(sr["results"][0])
         else:
-            # Fallback: search the whole string
-            result = search_products(df, clean_msg, max_results=10)
-            products = result.get("results", [])
+            # No parseable parts — don't search for random products.
+            # If coreference resolved parts, they'll be in history for GPT.
+            # Otherwise ask for clarification.
+            products = []
 
-        # If we STILL don't have at least 2 products, fall through to GPT with
-        # the catalog data so the model can attempt the comparison conversationally
-        # instead of returning the broken "Only found 1 product" error message.
-        # _handle_pandas doesn't have chemicals_df in scope so pass an empty
-        # dataframe — the GPT path only uses chemicals_df for chemical intent.
+        # If we don't have 2+ products, let GPT handle it with history context.
+        # GPT has the cached products from previous turns and can reference them.
         if len(products) < 2:
-            logger.info(f"compare path returned {len(products)} products — falling through to GPT")
+            logger.info(f"compare path returned {len(products)} products — falling through to GPT with history")
             import pandas as _pd
-            return await _handle_gpt(message, "general", df, _pd.DataFrame(), history=None, advisory=None)
+            return await _handle_gpt(message, "general", df, _pd.DataFrame(), history=history, advisory=None)
         if len(products) >= 2:
             # Build side-by-side comparison table
             spec_keys = ["Description", "Product_Type", "Final_Manufacturer", "Micron", "Media", "Max_Temp_F", "Max_PSI", "Flow_Rate", "Efficiency", "Price"]
