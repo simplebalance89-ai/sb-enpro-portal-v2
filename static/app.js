@@ -1715,7 +1715,7 @@
                 ['Media', p.Media || p.media || '—'],
                 ['Max Temp', p.Max_Temp_F || p.max_temp_f ? (p.Max_Temp_F || p.max_temp_f) + '°F' : '—'],
                 ['Max PSI', p.Max_PSI || p.max_psi ? (p.Max_PSI || p.max_psi) + ' PSI' : '—'],
-                ['Price', p.Price || p.price ? '$' + (p.Price || p.price) : '—'],
+                ['Price', p.Price || p.price ? (String(p.Price || p.price).startsWith('$') ? (p.Price || p.price) : '$' + (p.Price || p.price)) : '—'],
                 ['Stock', (p.Total_Stock || p.total_stock || 0) > 0 ? (p.Total_Stock || p.total_stock) + ' units' : 'Out of stock']
             ];
             
