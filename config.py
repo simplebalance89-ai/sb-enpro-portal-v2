@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     AZURE_WHISPER_DEPLOYMENT: str = Field(default="whisper", description="Azure Whisper deployment (legacy)")
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # Azure AI Search
+    # ═══════════════════════════════════════════════════════════════════════════
+    AZURE_SEARCH_ENDPOINT: str = Field(
+        default="https://enpro-ai-search.search.windows.net",
+        description="Azure AI Search endpoint"
+    )
+    AZURE_SEARCH_KEY: str = Field(default="", description="Azure AI Search admin key")
+    AZURE_SEARCH_INDEX: str = Field(default="enpro-products", description="Azure AI Search index name")
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # Azure Blob Storage
     # ═══════════════════════════════════════════════════════════════════════════
     AZURE_BLOB_SAS: str = Field(default="", description="SAS token for Azure Blob access")
@@ -94,7 +104,19 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONTAINER: str = Field(default="data", description="Azure Storage container name")
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # Database (PostgreSQL)
+    # Azure Cosmos DB
+    # ═══════════════════════════════════════════════════════════════════════════
+    COSMOS_ENDPOINT: str = Field(default="", description="Cosmos DB endpoint URL")
+    COSMOS_KEY: str = Field(default="", description="Cosmos DB primary key")
+    COSMOS_DATABASE: str = Field(default="enpro-fm", description="Cosmos DB database name")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Azure Key Vault
+    # ═══════════════════════════════════════════════════════════════════════════
+    AZURE_KEYVAULT_URI: str = Field(default="", description="Azure Key Vault URI")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Database (PostgreSQL - legacy, migrating to Cosmos DB)
     # ═══════════════════════════════════════════════════════════════════════════
     DATABASE_URL: str = Field(
         default="",

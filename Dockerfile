@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 # Metadata
 LABEL maintainer="EnPro Filtration Mastermind"
-LABEL description="AI-powered filtration product portal"
+LABEL description="AI-powered filtration product portal v3.0 — Azure Native"
+LABEL version="3.0"
 
 # Create non-root user
 RUN groupadd -r enpro && useradd -r -g enpro -d /app -s /sbin/nologin enpro
@@ -10,7 +11,12 @@ RUN groupadd -r enpro && useradd -r -g enpro -d /app -s /sbin/nologin enpro
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
+# Install system deps for Azure Speech SDK (if used)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl-dev libasound2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

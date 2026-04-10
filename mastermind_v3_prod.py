@@ -26,6 +26,7 @@ from pydantic import BaseModel
 # Import conversation memory for history loading
 from conversation_memory import get_recent_history, append_message
 from db import session_factory
+import search_azure
 
 logger = logging.getLogger("enpro.mastermind")
 
@@ -499,30 +500,26 @@ class EnproMastermindV3:
         return parsed
     
     async def _search_products(self, query: str) -> List[Dict]:
-        # Search catalog with multiple strategies.
+        """Search products via Azure AI Search, fallback to pandas."""
+        # Try Azure AI Search first
+        az_result = search_azure.search_products(query, in_stock_only=False, max_results=20)
+        if az_result["search_type"] not in ("azure_unavailable", "azure_error") and az_result["results"]:
+            logger.info(f"Azure Search: {az_result['total_found']} results for '{query}'")
+            return az_result["results"]
+
+        # Fallback to pandas if Azure Search unavailable
+        logger.info(f"Falling back to pandas search for '{query}'")
         results = []
         query_upper = query.upper()
-        
-        # Strategy 1: Exact part number
         for _, row in self.catalog_df.iterrows():
-            if query_upper == str(row.get('Part_Number', '')).upper():
+            pn = str(row.get('Part_Number', '')).upper()
+            if query_upper in pn or pn in query_upper:
                 results.append(self._product_to_dict(row))
-        
-        # Strategy 2: Contains part number
-        if not results:
-            for _, row in self.catalog_df.iterrows():
-                pn = str(row.get('Part_Number', '')).upper()
-                if query_upper in pn or pn in query_upper:
-                    results.append(self._product_to_dict(row))
-        
-        # Strategy 3: Description search
         if not results:
             for _, row in self.catalog_df.iterrows():
                 desc = str(row.get('Description', '')).upper()
                 if any(word in desc for word in query_upper.split()[:3]):
                     results.append(self._product_to_dict(row))
-        
-        # Sort by relevance (exact match first)
         return results[:20]
     
     async def _narrow_with_gpt5(self, message: str, products: List[Dict]) -> List[Dict]:
@@ -709,14 +706,22 @@ async def chat_endpoint(request: ChatRequest):
 
 @router.get("/health")
 async def health():
+    import os
     return {
         "status": "ok",
-        "version": "3.0-prod",
+        "version": "3.0-azure-native",
         "models": {
             "classifier": PHI4_DEPLOYMENT,
             "fast": PHI4_FAST_DEPLOYMENT,
             "reasoning": O3_MINI_DEPLOYMENT,
             "deep": O3_MINI_HIGH_DEPLOYMENT,
-            "narrow": GPT54_MINI_DEPLOYMENT
-        }
+            "narrow": GPT54_MINI_DEPLOYMENT,
+        },
+        "azure_services": {
+            "ai_search": bool(os.environ.get("AZURE_SEARCH_ENDPOINT")),
+            "cosmos_db": bool(os.environ.get("COSMOS_ENDPOINT")),
+            "speech": bool(os.environ.get("AZURE_SPEECH_KEY")),
+            "key_vault": bool(os.environ.get("AZURE_KEYVAULT_URI")),
+        },
+        "product_count": len(mastermind.catalog_df) if mastermind else 0,
     }
