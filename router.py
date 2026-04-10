@@ -926,7 +926,7 @@ async def _handle_pandas(message: str, intent: str, df: pd.DataFrame) -> dict:
             spec_keys = ["Description", "Product_Type", "Final_Manufacturer", "Micron", "Media", "Max_Temp_F", "Max_PSI", "Flow_Rate", "Efficiency", "Price"]
             spec_labels = ["Description", "Product Type", "Manufacturer", "Micron", "Media", "Max Temp (F)", "Max PSI", "Flow Rate", "Efficiency", "Price"]
 
-            lines = [f"**Side-by-Side Comparison** \n"]
+            lines = []
 
             # Header row
             pn_header = " | ".join(f"**{p.get('Part_Number', '?')}**" for p in products[:5])
