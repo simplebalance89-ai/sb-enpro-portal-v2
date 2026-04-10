@@ -3,22 +3,18 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
     testDir: './tests',
     timeout: 60000,
-    retries: 1,
+    retries: 0,
     use: {
-        baseURL: 'https://enpro-fm-portal.onrender.com',
+        baseURL: 'https://enpro-fm-portal-v215-staging.onrender.com',
         screenshot: 'on',
-        video: 'off',
-        trace: 'off',
+        video: 'on',
+        trace: 'on',
     },
     reporter: [['html', { open: 'never' }], ['list']],
     projects: [
         {
             name: 'chromium',
             use: { browserName: 'chromium', viewport: { width: 1280, height: 900 } },
-        },
-        {
-            name: 'mobile',
-            use: { browserName: 'chromium', viewport: { width: 390, height: 844 } },
         },
     ],
     outputDir: './test-results',
