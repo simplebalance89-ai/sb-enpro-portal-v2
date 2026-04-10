@@ -10,6 +10,7 @@ Model Mappings:
 - gpt-5-mini → Product narrowing (replaces gpt-5.4-mini)
 """
 
+import os
 import json
 import logging
 import re
@@ -17,11 +18,16 @@ from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-import os
 import pandas as pd
 from azure.openai import AzureOpenAI
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+# Import conversation memory for history loading
+from conversation_memory import get_recent_history, append_message
+from db import session_factory
+
+logger = logging.getLogger("enpro.mastermind")
 
 logger = logging.getLogger("enpro.mastermind")
 
@@ -54,6 +60,7 @@ Classify the user query into EXACTLY ONE category:
 4. COMPARE - Product comparison (e.g., "compare HC9600 and CLR130", "vs", "difference between")
 5. GENERAL_CHAT - General questions (e.g., "what's the difference", "how do I", "what is")
 6. VOICE_TRANSCRIPTION - Voice input that needs phonetic resolution
+7. FOLLOW_UP - Referencing previous context (e.g., "compare these", "what about that one", "tell me more about the second option")
 
 Respond with ONLY the category name. One or two words maximum.
 
@@ -63,7 +70,10 @@ Examples:
 - "meeting with Acme Corp tomorrow" → PREGAME
 - "compare HC9600 vs CLR130" → COMPARE
 - "what's the difference between nominal and absolute" → GENERAL_CHAT
-- "aitch see ninety six oh oh" → VOICE_TRANSCRIPTION"""
+- "aitch see ninety six oh oh" → VOICE_TRANSCRIPTION
+- "compare these" → FOLLOW_UP
+- "what about that one" → FOLLOW_UP
+- "tell me more about the second option" → FOLLOW_UP"""
 
 O4_MINI_REASONING_PROMPT = """You are the Enpro Filtration Mastermind. A sales rep is texting you from their phone.
 
@@ -75,6 +85,13 @@ CRITICAL RULES (Never Break):
 5. GIVE reasoning: "I recommend X because Y" — reps need to explain to customers
 6. MOBILE-FRIENDLY: Short paragraphs, scannable text, no wide tables
 
+GUIDED CONVERSATION - HELP THE USER EXPLORE:
+- When they mention a general need, suggest 2-3 specific directions they could go
+- If they looked at products earlier, REMEMBER and reference them: "You saw HC9600 earlier — want to compare it to..."
+- When showing options, explain WHEN they'd choose each one ("Go with X if budget is tight, Y if they need longer life")
+- If they say "compare these" or "what about that one", check context — they probably mean products already discussed
+- Always suggest ONE next step: "Want me to check stock on these?" or "Need pricing for both?"
+
 CONVERSATION STYLE:
 - Lead with the verdict: "For data center HVAC, I'd start with..."
 - Reference context: "Since you mentioned 10 micron earlier..."
@@ -84,7 +101,7 @@ CONVERSATION STYLE:
 RESPONSE FORMAT (JSON only):
 {
   "response_type": "recommendation|briefing|conversation|escalation",
-  "to_user": "Natural conversational text, scannable on mobile, NO tables or bullet lists",
+  "to_user": "Natural conversational text, scannable on mobile, NO tables or bullet lists. Mention previous products if relevant.",
   "thinking_trace": ["Step 1: User asked...", "Step 2: Looking for..."],
   "headline": "ONE LINE verdict - lead with the answer",
   "picks": [
@@ -95,8 +112,8 @@ RESPONSE FORMAT (JSON only):
       "specs": "$52, 12 in stock Houston, MERV 13"
     }
   ],
-  "follow_up_question": "ONE question to qualify or close, or null",
-  "context_update": {"industry": "brewery", "customer": "Acme Corp", "topic": "filter_life"},
+  "follow_up_question": "ONE question to qualify or close, or null. Suggest a natural next step.",
+  "context_update": {"industry": "brewery", "customer": "Acme Corp", "topic": "filter_life", "products_discussed": ["HC9600", "CLR130"]},
   "escalation": false,
   "escalation_reason": null
 }
@@ -105,7 +122,7 @@ SAFETY ESCALATION (Set escalation: true if):
 - Temperature > 400°F mentioned
 - Hydrogen or H2S service
 - Pressure > 150 PSI without context
-- User mentions "lethal", "steam 400", "sour gas""""
+- User mentions "lethal", "steam 400", "sour gas"
 
 @dataclass
 class ClassificationResult:
@@ -174,6 +191,11 @@ class EnproMastermindV3:
         # Voice transcription → Handle phonetically
         elif classification.category == "VOICE_TRANSCRIPTION":
             return await self._handle_voice_transcription(message, history)
+        
+        # Follow-up / referencing previous context → Needs full context awareness
+        elif classification.category == "FOLLOW_UP":
+            # Force complex handling with history for context
+            return await self._handle_follow_up(message, history)
         
         # Complex queries → O4-mini or GPT-4.1
         elif classification.category == "PREGAME":
@@ -430,6 +452,58 @@ class EnproMastermindV3:
         
         return parsed
     
+    async def _handle_follow_up(self, message: str, history: List[Dict]) -> Dict:
+        """
+        Handle follow-up queries that reference previous context.
+        Examples: "compare these", "what about that one", "tell me more"
+        Uses history to understand what "these" or "that" refers to.
+        """
+        # Extract part numbers from conversation history
+        history_pns = set()
+        for turn in history[-6:]:  # Last 6 messages
+            content = turn.get("content", "")
+            products = turn.get("products_json", {})
+            if products and "picks" in products:
+                for pick in products["picks"]:
+                    if "part_number" in pick:
+                        history_pns.add(pick["part_number"])
+            # Also extract from text
+            pns = _extract_part_numbers(content)
+            history_pns.update(pns)
+        
+        # Search for those products in catalog
+        products = []
+        for pn in list(history_pns)[:5]:
+            product = self.catalog_df[self.catalog_df['Part_Number'] == pn]
+            if not product.empty:
+                products.append(self._product_to_dict(product.iloc[0]))
+        
+        # If no products found in history, search based on message
+        if not products:
+            products = await self._search_products(message)
+        
+        # Generate contextual response
+        history_text = self._format_history(history)
+        products_text = json.dumps(products[:3], indent=2) if products else "No products available"
+        
+        response = self.client.chat.completions.create(
+            model=O3_MINI_DEPLOYMENT,
+            messages=[{
+                "role": "system",
+                "content": O4_MINI_REASONING_PROMPT + "\n\nFOLLOW-UP MODE: The user is referring to something from earlier in the conversation. Use the conversation history to understand what they mean by 'these', 'that one', 'the second option', etc. Reference specific products from the context."
+            }, {
+                "role": "user",
+                "content": f"Conversation history:\n{history_text}\n\nProducts discussed:\n{products_text}\n\nFollow-up query: {message}"
+            }],
+            response_format={"type": "json_object"}
+        )
+        
+        parsed = json.loads(response.choices[0].message.content)
+        parsed["model_used"] = O3_MINI_DEPLOYMENT
+        parsed["cost"] = 0.015
+        
+        return parsed
+    
     async def _search_products(self, query: str) -> List[Dict]:
         """Search catalog with multiple strategies."""
         results = []
@@ -542,27 +616,96 @@ class ChatResponse(BaseModel):
 # Global instance
 mastermind: Optional[EnproMastermindV3] = None
 
+# Track products discussed per session for coreference resolution
+session_products: Dict[str, List[Dict]] = {}
+
 def init_mastermind(df: pd.DataFrame):
     global mastermind
     mastermind = EnproMastermindV3(df)
     logger.info("✅ Production Mastermind initialized with Phi-4 + GPT-4.1 + O4-mini routing")
+
+
+def _extract_part_numbers(text: str) -> List[str]:
+    """Extract part numbers like HC9600, CLR130 from text."""
+    pattern = r'\b[A-Z]{2,4}\d{2,4}[A-Z0-9]*\b'
+    return re.findall(pattern, text.upper())
+
+
+def _has_coreference(text: str) -> bool:
+    """Detect if user is referencing previous context (these, them, that one, etc.)"""
+    coref_patterns = [
+        r'\b(these|those|them|they|it|that one|this one|the (first|second|third) one)\b',
+        r'\b(compare|vs|versus|difference between)\b',
+        r'\b(what about|how about|and|also)\b',
+    ]
+    text_lower = text.lower()
+    return any(re.search(p, text_lower) for p in coref_patterns)
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     if mastermind is None:
         raise HTTPException(status_code=500, detail="Mastermind not initialized")
     
+    # Load conversation history from database
+    history = []
+    if request.user_id:
+        async with session_factory() as session:
+            history = await get_recent_history(session, request.user_id, max_messages=10)
+    
+    # Check for coreference (referencing previous products)
+    message = request.message
+    if _has_coreference(message) and request.session_id in session_products:
+        # Inject context about previously discussed products
+        previous_products = session_products[request.session_id]
+        if previous_products:
+            pn_list = [p.get('part_number', '') for p in previous_products[:3]]
+            context_injection = f"[Context: Previously discussed: {', '.join(pn_list)}] {message}"
+            message = context_injection
+            logger.info(f"Coreference detected, injected context: {pn_list}")
+    
+    # Get response from mastermind
     result = await mastermind.chat(
-        message=request.message,
-        history=[]  # TODO: Load from session storage
+        message=message,
+        history=history
     )
+    
+    # Track products discussed in this session for future coreference
+    picks = result.get("picks", [])
+    if picks and request.session_id:
+        if request.session_id not in session_products:
+            session_products[request.session_id] = []
+        # Add new picks to session memory (avoid duplicates)
+        existing_pns = {p.get('part_number') for p in session_products[request.session_id]}
+        for pick in picks:
+            if pick.get('part_number') not in existing_pns:
+                session_products[request.session_id].append(pick)
+        # Keep only last 5 products
+        session_products[request.session_id] = session_products[request.session_id][-5:]
+    
+    # Persist to conversation memory if user_id provided
+    if request.user_id:
+        async with session_factory() as session:
+            await append_message(
+                session=session,
+                user_id=request.user_id,
+                role="user",
+                content=request.message,
+                products_json={"picks": picks} if picks else None
+            )
+            await append_message(
+                session=session,
+                user_id=request.user_id,
+                role="assistant",
+                content=result["to_user"],
+                products_json={"picks": picks} if picks else None
+            )
     
     return ChatResponse(
         response_type=result.get("response_type", "conversation"),
         to_user=result["to_user"],
         thinking_trace=result.get("thinking_trace"),
         headline=result.get("headline"),
-        picks=result.get("picks", []),
+        picks=picks,
         follow_up_question=result.get("follow_up_question"),
         context_update=result.get("context_update", {}),
         escalation=result.get("escalation", False),
