@@ -276,6 +276,12 @@ Then end with ONE conversational follow-up — not a menu. Examples:
 
 Never say "Say lookup" or "type compare" or list commands. The user can just talk to you.
 
+## STOCK PRIORITY
+
+Prioritize in-stock items in recommendations. If the best-fit part is out of stock, mention it explicitly: "Best fit is X (currently out of stock — check lead time with the office). Alternative in stock now: Y."
+
+Always recommend in-stock products first. Only show out-of-stock items if no in-stock alternatives exist for the application.
+
 ## STOCK FIGURES
 
 Stock data uses warehouse columns: Houston General (Qty_Loc_10), Houston Reserve (Qty_Loc_22), Charlotte (Qty_Loc_12), Kansas City (Qty_Loc_30). Mention only locations where the quantity is greater than zero, and only when stock is relevant. Don't list zero-stock locations. If everything is zero, say plainly: "Out of stock right now — the office or check in with the office for next steps."
@@ -1453,9 +1459,20 @@ async def _handle_gpt(
 
     search_result = {"results": []}
     if search_query:
-        search_result = search_products(df, search_query, max_results=5, in_stock_only=False)
+        search_result = search_products(df, search_query, max_results=10, in_stock_only=False)
         if search_result.get("results"):
-            products_context = json.dumps(search_result["results"], indent=2, default=str)
+            # Sort: in-stock first, then by Total_Stock descending
+            results = search_result["results"]
+            in_stock = [p for p in results if int(float(p.get("Total_Stock", 0) or 0)) > 0]
+            out_stock = [p for p in results if int(float(p.get("Total_Stock", 0) or 0)) == 0]
+            in_stock.sort(key=lambda p: int(float(p.get("Total_Stock", 0) or 0)), reverse=True)
+            # Prioritize in-stock, pad with out-of-stock if needed
+            if len(in_stock) >= 3:
+                sorted_results = in_stock[:5]
+            else:
+                sorted_results = in_stock + out_stock[:5 - len(in_stock)]
+            search_result["results"] = sorted_results
+            products_context = json.dumps(sorted_results, indent=2, default=str)
             context_parts.append(f"[RELEVANT PRODUCTS FROM CATALOG]:\n{products_context}")
 
     # Anti-hallucination guardrail — force GPT to only use provided data
