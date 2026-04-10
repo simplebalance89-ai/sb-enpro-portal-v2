@@ -5,6 +5,7 @@ Main application with chat, lookup, search, chemical check, and widget endpoints
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
@@ -300,29 +301,37 @@ async def health():
 # Auth + memory helpers — shared by /api/chat, /api/chemical, /api/voice-search-text
 # ---------------------------------------------------------------------------
 
-async def _chat_auth_and_history(request: Request) -> tuple[Optional[int], Optional[str], list]:
+async def _chat_auth_and_history(request: Request, session_id: str = "") -> tuple[Optional[int], Optional[str], list]:
     """
     Phase 1 of any history-aware endpoint: short DB session, look up the
     optional logged-in user + their recent history. Returns
     (user_id, rep_id, history). The rep_id is the per-user customer
     intelligence partition key — None for generic salesperson mode.
 
-    SOFT by design: returns (None, None, []) if DB is unconfigured, no
-    cookie is present, or the cookie is invalid. Endpoints that require
-    auth (like /api/chat) must enforce it themselves after calling.
+    Falls back to Cosmos DB for history when Postgres is unavailable.
     """
-    if not db_ready():
-        return None, None, []
-    try:
-        async with session_factory()() as session:
-            user = await auth.get_current_user_optional(request, session)
-            if user is None:
-                return None, None, []
-            history = await conversation_memory.get_recent_history(session, user.id)
-            return user.id, user.rep_id, history
-    except (OperationalError, DBAPIError, ConnectionError) as e:
-        logger.error(f"DB connection error during auth/history fetch: {e}", exc_info=True)
-        return None, None, []
+    # Try Postgres first (auth + history)
+    if db_ready():
+        try:
+            async with session_factory()() as session:
+                user = await auth.get_current_user_optional(request, session)
+                if user is None:
+                    return None, None, []
+                history = await conversation_memory.get_recent_history(session, user.id)
+                return user.id, user.rep_id, history
+        except (OperationalError, DBAPIError, ConnectionError) as e:
+            logger.error(f"DB connection error during auth/history fetch: {e}", exc_info=True)
+
+    # Fallback: Cosmos DB for history (no auth, session-based)
+    if session_id and os.environ.get("COSMOS_ENDPOINT"):
+        try:
+            import conversation_memory_cosmos as cosmos_mem
+            history = await cosmos_mem.get_recent_history(session_id, max_messages=10)
+            return None, None, history
+        except Exception as e:
+            logger.error(f"Cosmos history fetch failed: {e}")
+
+    return None, None, []
 
 
 async def _persist_turn(
@@ -330,25 +339,38 @@ async def _persist_turn(
     user_message: str,
     assistant_message: str,
     products: Optional[list] = None,
+    session_id: str = "",
 ) -> None:
     """
-    Phase 3: short DB session, append the (user, assistant) pair to memory.
-    No-op if user_id is None or DB is unconfigured. Errors are logged but
-    never raised — persistence failure must not break the user-facing reply.
+    Phase 3: persist conversation turn to Postgres and/or Cosmos DB.
+    Errors are logged but never raised.
     """
-    if user_id is None or not db_ready():
-        return
-    try:
-        async with session_factory()() as session:
-            await conversation_memory.append_turn(
-                session,
-                user_id=user_id,
+    # Postgres (if available)
+    if user_id is not None and db_ready():
+        try:
+            async with session_factory()() as session:
+                await conversation_memory.append_turn(
+                    session,
+                    user_id=user_id,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    products=products,
+                )
+        except Exception as e:
+            logger.error(f"Failed to persist turn to Postgres: {e}")
+
+    # Cosmos DB (if configured)
+    if session_id and os.environ.get("COSMOS_ENDPOINT"):
+        try:
+            import conversation_memory_cosmos as cosmos_mem
+            await cosmos_mem.append_turn(
+                session_id=session_id,
                 user_message=user_message,
                 assistant_message=assistant_message,
                 products=products,
             )
-    except Exception as e:
-        logger.error(f"Failed to persist conversation turn: {e}")
+        except Exception as e:
+            logger.error(f"Failed to persist turn to Cosmos: {e}")
 
 
 async def _v3_handle_message(message: str, session_id: str, history=None):
@@ -388,7 +410,7 @@ async def chat(request: Request, req: ChatRequest):
             content={"error": "Data not loaded yet. Try again in a moment."},
         )
 
-    user_id, user_rep_id, history = await _chat_auth_and_history(request)
+    user_id, user_rep_id, history = await _chat_auth_and_history(request, session_id=req.session_id)
 
     # /api/chat REQUIRES auth when DB is configured. Voice + chemical
     # endpoints stay open for anonymous callers (the soft helper above
@@ -463,7 +485,7 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
         return
 
     # Auth + history fetch (same soft helper as /api/chat)
-    user_id, user_rep_id, history = await _chat_auth_and_history(request)
+    user_id, user_rep_id, history = await _chat_auth_and_history(request, session_id=req.session_id)
     if db_ready() and user_id is None:
         yield _sse_event("error", {"error": "Not authenticated", "status": 401})
         return
@@ -494,6 +516,7 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
         req.message,
         result.get("response", ""),
         products=result.get("products"),
+        session_id=req.session_id,
     )
 
     # Now stream the structured shape in chunks. If the model returned
