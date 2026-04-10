@@ -25,6 +25,14 @@ from data_loader import load_static, load_inventory, load_chemicals, merge_data
 from search import search_products, lookup_part, suggest_parts
 from router import handle_message
 from azure_client import health_check as azure_health_check, close_client
+
+# NEW: v3.0 Unified Backend (add this)
+if settings.USE_UNIFIED_HANDLER:
+    from mastermind_v3_prod import router as mastermind_router, init_mastermind
+    logger.info("Using unified handler v3.0")
+else:
+    mastermind_router = None
+    logger.info("Using legacy router")
 from governance import run_pre_checks
 from quote_state import (
     merge_into_quote_request,
@@ -112,6 +120,15 @@ async def lifespan(app: FastAPI):
                 f"Data loaded: {len(state.df)} products, "
                 f"{len(state.chemicals_df)} chemical entries"
             )
+            
+            # NEW: Initialize v3.0 unified backend (add this)
+            if settings.USE_UNIFIED_HANDLER and mastermind_router:
+                try:
+                    init_mastermind(state.df)
+                    logger.info("✅ Unified backend v3.0 initialized")
+                except Exception as e:
+                    logger.error(f"Failed to init unified backend: {e}")
+            
             # Initialize voice search vocabulary from product data
             init_voice_search(state.df)
             # Initialize Voice Echo (predictive pre-fetch system)
@@ -183,6 +200,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Auth router (/api/auth/login, /logout, /me)
 app.include_router(auth.router)
+
+# NEW: v3.0 Unified backend router (add this)
+if settings.USE_UNIFIED_HANDLER and mastermind_router:
+    app.include_router(mastermind_router, prefix="/api/v3")
+    logger.info("Mounted /api/v3 routes")
+
 
 
 # Prevent stale HTML — browsers must revalidate index.html / login.html on every load.
