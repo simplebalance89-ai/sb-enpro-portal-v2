@@ -861,6 +861,15 @@
             renderContextCard();
         }
 
+        // Compare intent — render side-by-side comparison
+        if (data.intent === 'compare' && data.products && data.products.length >= 2) {
+            appendCard(renderCompareTable(data.products));
+            scrollToBottom();
+            searchCount++;
+            checkAutoReset();
+            return;
+        }
+
         // ── V2.10 Structured response rendering ──
         // When the backend returns the new structured shape (headline + picks
         // + follow_up + body) from _handle_gpt's JSON parser, render it as a
@@ -1664,6 +1673,54 @@
         html += '<a class="card-link" onclick="sendMessage(\'show me the full product details\')">Would you like to know more?</a>';
         html += '</p>';
         
+        return html;
+    };
+
+    // ── Render side-by-side comparison table ──
+    window.renderCompareTable = function(products) {
+        var html = '<div class="chemical-card">';
+        html += '<div class="chemical-card-header">Side-by-Side Comparison</div>';
+        html += '<div class="chemical-card-body" style="padding:0;">';
+        
+        // Build comparison rows
+        var specs = [
+            {key: 'Part_Number', label: 'Part Number'},
+            {key: 'Description', label: 'Description'},
+            {key: 'Final_Manufacturer', label: 'Manufacturer'},
+            {key: 'Micron', label: 'Micron'},
+            {key: 'Media', label: 'Media'},
+            {key: 'Max_Temp_F', label: 'Max Temp'},
+            {key: 'Max_PSI', label: 'Max PSI'},
+            {key: 'Price', label: 'Price'},
+            {key: 'Total_Stock', label: 'Stock'}
+        ];
+        
+        html += '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+        
+        // Header row with part numbers
+        html += '<tr style="background:var(--navy); color:white;">';
+        html += '<th style="padding:10px; text-align:left; border:1px solid var(--border);">Spec</th>';
+        products.slice(0, 3).forEach(function(p) {
+            html += '<th style="padding:10px; text-align:left; border:1px solid var(--border);">' + esc(p.Part_Number || p.part_number || '?') + '</th>';
+        });
+        html += '</tr>';
+        
+        // Spec rows
+        specs.forEach(function(spec, idx) {
+            html += '<tr style="background:' + (idx % 2 === 0 ? 'white' : 'var(--bg)') + '">';
+            html += '<td style="padding:8px 10px; border:1px solid var(--border); font-weight:600;">' + spec.label + '</td>';
+            products.slice(0, 3).forEach(function(p) {
+                var val = p[spec.key] || p[spec.key.toLowerCase()] || '—';
+                if (spec.key === 'Total_Stock') {
+                    val = val > 0 ? val + ' units' : 'Out of stock';
+                }
+                html += '<td style="padding:8px 10px; border:1px solid var(--border);">' + esc(String(val)) + '</td>';
+            });
+            html += '</tr>';
+        });
+        
+        html += '</table>';
+        html += '</div></div>';
         return html;
     };
 
