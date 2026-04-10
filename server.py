@@ -281,6 +281,9 @@ class SessionMigrateRequest(BaseModel):
 async def health():
     """Health check — data status + Azure OpenAI connectivity."""
     azure_status = await azure_health_check()
+    v3_paths = sorted(
+        [route.path for route in app.routes if route.path.startswith("/api/v3")]
+    )
     return {
         "status": "healthy" if state.data_loaded else "degraded",
         "data_loaded": state.data_loaded,
@@ -290,6 +293,14 @@ async def health():
             state.last_inventory_load.isoformat() if state.last_inventory_load else None
         ),
         "azure_openai": azure_status,
+        "runtime_config": {
+            "use_unified_handler": settings.USE_UNIFIED_HANDLER,
+            "use_modular_models": settings.USE_MODULAR_MODELS,
+            "use_phi4_routing": settings.USE_PHI4_ROUTING,
+            "azure_openai_endpoint": settings.AZURE_OPENAI_ENDPOINT,
+            "azure_openai_api_version": settings.AZURE_OPENAI_API_VERSION,
+        },
+        "mounted_v3_routes": v3_paths,
         "timestamp": datetime.utcnow().isoformat(),
     }
 
