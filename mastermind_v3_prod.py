@@ -213,7 +213,6 @@ class EnproMastermindV3:
                     {"role": "system", "content": PHI4_CLASSIFIER_PROMPT},
                     {"role": "user", "content": message}
                 ],
-                temperature=0.0,
                 max_completion_tokens=20
             )
             
@@ -543,8 +542,7 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"Query: {message}\nCandidates: {candidates_text}"
             }],
-            response_format={"type": "json_object"},
-            temperature=0.0
+            response_format={"type": "json_object"}
         )
         
         result = json.loads(response.choices[0].message.content)
