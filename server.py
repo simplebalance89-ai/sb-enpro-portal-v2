@@ -549,6 +549,9 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
         for pick in (result.get("picks") or []):
             pn = str(pick.get("part_number") or "").strip().upper()
             product = products_by_pn.get(pn)
+            # If product not in results, look it up from catalog
+            if product is None and pn and state.data_loaded:
+                product = lookup_part(state.df, pn)
             yield _sse_event("pick", {
                 "part_number": pn,
                 "reason": pick.get("reason", ""),
