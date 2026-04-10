@@ -26,6 +26,9 @@ from search import search_products, lookup_part, suggest_parts
 from router import handle_message
 from azure_client import health_check as azure_health_check, close_client
 
+logger = logging.getLogger("enpro.server")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+
 # NEW: v3.0 Unified Backend (add this)
 if settings.USE_UNIFIED_HANDLER:
     from mastermind_v3_prod import router as mastermind_router, init_mastermind
@@ -53,9 +56,6 @@ import conversation_memory
 from db import close_db, get_session, init_db, is_ready as db_ready, session_factory
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import DBAPIError, OperationalError
-
-logger = logging.getLogger("enpro.server")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 # ---------------------------------------------------------------------------
 # App state — holds loaded DataFrames
