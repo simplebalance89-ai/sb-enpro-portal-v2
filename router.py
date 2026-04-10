@@ -233,7 +233,7 @@ Rules:
 - picks: 1-3 items max, ranked strongest first. ONLY use part_numbers from the [RELEVANT PRODUCTS FROM CATALOG] data attached. NEVER invent. If no good fit exists, return picks: [] and explain in body.
 - For pure-knowledge questions (no product ranking applies — escalations, chemical, definitions, out-of-scope), return picks: [] and put the answer in body. headline still required.
 - Speak plainly. Mobile-friendly. No numbered tables. No "1./2./3." format. The card layout handles ranking visually.
-- The user's message arrives below the catalog data. Use ONLY catalog products. NEVER cite prior-turn products unless they appear in the current catalog block too.
+- The user's message arrives below the catalog data. For NEW questions, prefer the [RELEVANT PRODUCTS FROM CATALOG] block. For follow-ups referencing prior turns ("those parts", "what about pricing", "compare them"), use products from conversation history — they are valid context.
 
 ## VISIBLE REASONING (required on EVERY response)
 
@@ -1512,10 +1512,11 @@ async def _handle_gpt(
     context_parts.append(
         "[CRITICAL DATA INTEGRITY RULE]\n"
         "You MUST ONLY cite specs, part numbers, prices, stock levels, and manufacturers "
-        "that appear in the [RELEVANT PRODUCTS FROM CATALOG] section above.\n"
-        "If a spec (micron, temp, PSI, flow rate, media, price) is NOT in the catalog data provided, "
+        "that appear in the [RELEVANT PRODUCTS FROM CATALOG] section above "
+        "OR in the [PRIOR TURN PRODUCTS] section OR in your conversation history.\n"
+        "If a spec (micron, temp, PSI, flow rate, media, price) is NOT in any provided data, "
         "say 'Not specified in catalog' — do NOT guess or invent values.\n"
-        "If no products were found in the catalog, say so. Do NOT fabricate part numbers.\n"
+        "If no products were found in the catalog AND no prior products exist in history, say so. Do NOT fabricate part numbers.\n"
         "NEVER round, estimate, or approximate specs. Use exact values from the data or say 'Contact Enpro.'"
     )
 
