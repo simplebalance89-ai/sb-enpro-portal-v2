@@ -92,7 +92,6 @@ async def chat_completion(
     
     payload = {
         "messages": messages,
-        "temperature": temperature,
         "max_completion_tokens": max_tokens,
     }
 
