@@ -907,6 +907,19 @@
             return;
         }
 
+        // Pregame intent — render structured meeting prep (conversational)
+        if (data.intent === 'pregame' && data.structured) {
+            var pregameHtml = renderConversationalPregame(data);
+            appendMessage('bot', pregameHtml);
+            if (data.products && data.products.length > 0) {
+                await renderProductsBatched(data.products);
+            }
+            scrollToBottom();
+            searchCount++;
+            checkAutoReset();
+            return;
+        }
+
         // Only capture specs into context from SINGLE product lookups, not multi-result searches
         if (data.products && data.products.length === 1) {
             updateContextFromProducts(data.products);
@@ -1585,6 +1598,41 @@
         html += '</div>';
 
         html += '</div></div>';
+        return html;
+    };
+
+    // ── Render conversational pregame (simpler, more natural) ──
+    window.renderConversationalPregame = function(data) {
+        var html = '';
+        
+        // Headline/body in plain text
+        if (data.headline) {
+            html += '<p><strong>' + esc(data.headline) + '</strong></p>';
+        }
+        if (data.body) {
+            html += '<p>' + esc(data.body) + '</p>';
+        }
+        
+        // Product picks as simple clickable links
+        if (data.picks && data.picks.length > 0) {
+            html += '<p>I'd go with ';
+            data.picks.forEach(function(pick, i) {
+                if (i > 0) html += ' or ';
+                html += '<a class="card-link" onclick="sendMessage(\'lookup ' + esc(pick.part_number).replace(/'/g, "\\'") + '\')">' + esc(pick.part_number) + '</a>';
+                if (pick.reason) {
+                    html += ' — ' + esc(pick.reason);
+                }
+            });
+            html += '</p>';
+        }
+        
+        // Follow-up question
+        if (data.follow_up) {
+            html += '<p style="font-style:italic; margin-top:12px; padding:10px; background:var(--bg); border-radius:6px; border-left:3px solid var(--accent);">';
+            html += 'Ask them: "' + esc(data.follow_up) + '"';
+            html += '</p>';
+        }
+        
         return html;
     };
 
