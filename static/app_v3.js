@@ -367,17 +367,18 @@
         formData.append('session_id', sessionId);
         
         try {
-            const response = await fetch(`${API_BASE}/api/v3/voice`, {
+            const response = await fetch(`${API_BASE}/api/voice-search`, {
                 method: 'POST',
                 body: formData
             });
-            
+            if (!response.ok) throw new Error('Network response was not ok');
+
             const data = await response.json();
             
             // Show what was heard
             appendMessage({
                 type: 'user',
-                content: data.heard,
+                content: data.transcript || data.heard || '(voice input)',
                 isVoice: true
             });
             
@@ -387,7 +388,7 @@
             } else {
                 appendMessage({
                     type: 'assistant',
-                    content: data.response
+                    content: data.response || data.to_user || "Couldn't process that voice request."
                 });
             }
             
