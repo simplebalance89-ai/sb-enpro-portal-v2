@@ -1499,7 +1499,9 @@ async def _handle_gpt(
     messages.append({"role": "user", "content": user_content})
 
     try:
-        response = await reason(system_prompt, messages)
+        # Use fast model for compare/general with cached context (2-3s vs 10-15s)
+        use_fast = intent in ("compare", "general") and history
+        response = await reason(system_prompt, messages, fast=use_fast)
 
         # Try to parse the model's response as the structured JSON shape
         # (REASONING_SYSTEM_PROMPT and PREGAME_SYSTEM_PROMPT both ask for it).

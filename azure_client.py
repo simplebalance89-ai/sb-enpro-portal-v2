@@ -42,7 +42,7 @@ async def get_client() -> httpx.AsyncClient:
     """Get or create the shared async HTTP client."""
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=30.0)
+        _client = httpx.AsyncClient(timeout=45.0)
     return _client
 
 
@@ -132,14 +132,16 @@ async def reason(
     messages: list[dict],
     temperature: float = 0.3,
     max_tokens: int = 2048,
+    fast: bool = False,
 ) -> str:
     """
-    Full reasoning via gpt-4.1 deployment.
-    Returns the raw text content of the response.
+    Reasoning via Azure OpenAI.
+    fast=True uses gpt-4.1-mini (2-3s), fast=False uses o4-mini-reasoning (10-15s).
     """
+    deployment = settings.AZURE_DEPLOYMENT_FAST if fast else settings.AZURE_DEPLOYMENT_REASONING
     full_messages = [{"role": "system", "content": system_prompt}] + messages
     data = await chat_completion(
-        deployment=settings.AZURE_DEPLOYMENT_REASONING,
+        deployment=deployment,
         messages=full_messages,
         temperature=temperature,
         max_tokens=max_tokens,
