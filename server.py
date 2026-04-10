@@ -385,7 +385,7 @@ async def _v3_handle_message(message: str, session_id: str, history=None):
             "headline": v3_result.get("headline"),
             "body": v3_result.get("to_user", ""),
             "picks": v3_result.get("picks", []),
-            "follow_up": v3_result.get("follow_up_question"),
+            "follow_up": v3_result.get("follow_up"),
             "products": v3_result.get("picks", []),
             "model_used": v3_result.get("model_used", "unknown"),
             "cost": v3_result.get("cost", 0),

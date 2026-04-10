@@ -144,6 +144,9 @@ def index_products():
 
     df["Total_Stock"] = sum(pd.to_numeric(df[col], errors="coerce").fillna(0) for col in stock_cols)
 
+    # Fill NaN to prevent JSON encoding errors
+    df = df.fillna("")
+
     # Prepare documents for indexing
     print(f"Preparing {len(df)} documents for indexing...")
     documents = []

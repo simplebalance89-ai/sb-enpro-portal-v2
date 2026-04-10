@@ -111,7 +111,7 @@ RESPONSE FORMAT (JSON only):
       "specs": "$52, 12 in stock Houston, MERV 13"
     }
   ],
-  "follow_up_question": "ONE question to qualify or close, or null. Suggest a natural next step.",
+  "follow_up": "ONE question to qualify or close, or null. Suggest a natural next step.",
   "context_update": {"industry": "brewery", "customer": "Acme Corp", "topic": "filter_life", "products_discussed": ["HC9600", "CLR130"]},
   "escalation": false,
   "escalation_reason": null
@@ -333,7 +333,7 @@ class EnproMastermindV3:
                         "reason": row['Description'][:100],
                         "specs": f"${row.get('Price', 0)}, {row.get('Total_Stock', 0)} in stock"
                     }],
-                    "follow_up_question": "Need pricing on a specific quantity?",
+                    "follow_up": "Need pricing on a specific quantity?",
                     "context_update": {"last_part": row['Part_Number']},
                     "escalation": False,
                     "model_used": PHI4_FAST_DEPLOYMENT,
@@ -366,7 +366,7 @@ class EnproMastermindV3:
             "thinking_trace": ["General chat response"],
             "headline": None,
             "picks": [],
-            "follow_up_question": None,
+            "follow_up": None,
             "context_update": {},
             "escalation": False,
             "model_used": PHI4_FAST_DEPLOYMENT,
@@ -409,7 +409,7 @@ class EnproMastermindV3:
                         "reason": f"Phonetic match from '{message}'",
                         "specs": f"${row.get('Price', 0)}, {row.get('Total_Stock', 0)} in stock"
                     }],
-                    "follow_up_question": "Is this the right part?",
+                    "follow_up": "Is this the right part?",
                     "model_used": GPT54_MINI_DEPLOYMENT,
                     "cost": 0.005
                 }
@@ -643,7 +643,7 @@ class ChatResponse(BaseModel):
     thinking_trace: Optional[List[str]]
     headline: Optional[str]
     picks: List[Dict]
-    follow_up_question: Optional[str]
+    follow_up: Optional[str]
     context_update: Dict
     escalation: bool
     model_used: str
@@ -710,7 +710,7 @@ def _fallback_lookup_response(message: str, catalog_df: pd.DataFrame) -> Optiona
                 "reason": "Direct match from local product catalog",
                 "specs": f"${price}, {stock} in stock",
             }],
-            "follow_up_question": "Want me to compare this with alternatives in stock?",
+            "follow_up": "Want me to compare this with alternatives in stock?",
             "context_update": {"last_part": part_number},
             "escalation": False,
             "model_used": "fallback-local",
@@ -761,7 +761,7 @@ async def chat_endpoint(request: ChatRequest):
                 "thinking_trace": ["Azure reasoning unavailable"],
                 "headline": None,
                 "picks": [],
-                "follow_up_question": None,
+                "follow_up": None,
                 "context_update": {},
                 "escalation": False,
                 "model_used": "fallback-unavailable",
@@ -805,7 +805,7 @@ async def chat_endpoint(request: ChatRequest):
         thinking_trace=result.get("thinking_trace"),
         headline=result.get("headline"),
         picks=picks,
-        follow_up_question=result.get("follow_up_question"),
+        follow_up=result.get("follow_up"),
         context_update=result.get("context_update", {}),
         escalation=result.get("escalation", False),
         model_used=result.get("model_used", "unknown"),

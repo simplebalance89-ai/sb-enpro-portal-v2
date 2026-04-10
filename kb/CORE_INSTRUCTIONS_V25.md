@@ -59,8 +59,8 @@ Show availability by warehouse:
 
 1. Location 10: Houston General Stock
 2. Location 22: Houston Reserve
-3. Location 130: Chicago General Stock
-4. Location 140: Chicago Reserve
+3. Location 12: Charlotte
+4. Location 30: Kansas City
 
 Show only locations with Qty > 0. Hide zero-stock locations.
 If ALL locations zero = "Out of Stock."
