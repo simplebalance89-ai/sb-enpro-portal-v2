@@ -907,23 +907,10 @@
             return;
         }
 
-        // Pregame intent — render structured meeting prep (conversational, NO product dump)
+        // Pregame intent — render structured meeting prep (advisor style)
         if (data.intent === 'pregame' && data.structured) {
-            var pregameHtml = renderConversationalPregame(data);
+            var pregameHtml = renderAdvisorPregame(data);
             appendMessage('bot', pregameHtml);
-            // Only show 1-2 product cards if picks exist, not the full dump
-            if (data.picks && data.picks.length > 0) {
-                var pickCards = [];
-                data.picks.forEach(function(p) {
-                    var product = (data.products || []).find(function(prod) {
-                        return (prod.Part_Number || prod.part_number) === p.part_number;
-                    });
-                    if (product) pickCards.push(product);
-                });
-                if (pickCards.length > 0) {
-                    await renderProductsBatched(pickCards.slice(0, 2));
-                }
-            }
             scrollToBottom();
             searchCount++;
             checkAutoReset();
@@ -1611,37 +1598,43 @@
         return html;
     };
 
-    // ── Render conversational pregame (simpler, more natural) ──
-    window.renderConversationalPregame = function(data) {
+    // ── Render advisor-style pregame (conversational guidance + top picks) ──
+    window.renderAdvisorPregame = function(data) {
         var html = '';
         
-        // Headline/body in plain text
+        // Headline - what the customer cares about
         if (data.headline) {
-            html += '<p><strong>' + esc(data.headline) + '</strong></p>';
+            html += '<p>' + esc(data.headline) + '</p>';
         }
+        
+        // Body - lead with advice
         if (data.body) {
             html += '<p>' + esc(data.body) + '</p>';
         }
         
-        // Product picks as simple clickable links
+        // Top 2-3 product picks with detailed reasons
         if (data.picks && data.picks.length > 0) {
-            html += '<p>I would go with ';
-            data.picks.forEach(function(pick, i) {
-                if (i > 0) html += ' or ';
-                html += '<a class="card-link" onclick="sendMessage(\'lookup ' + esc(pick.part_number).replace(/'/g, "\\'") + '\')">' + esc(pick.part_number) + '</a>';
+            data.picks.slice(0, 3).forEach(function(pick) {
+                html += '<div style="margin:10px 0; padding:10px; background:var(--bg); border-left:3px solid var(--accent);">';
+                html += '<strong>' + esc(pick.part_number) + '</strong>';
                 if (pick.reason) {
                     html += ' — ' + esc(pick.reason);
                 }
+                html += '</div>';
             });
+        }
+        
+        // Follow-up questions
+        if (data.follow_up) {
+            html += '<p style="font-style:italic; margin-top:12px;">';
+            html += esc(data.follow_up);
             html += '</p>';
         }
         
-        // Follow-up question
-        if (data.follow_up) {
-            html += '<p style="font-style:italic; margin-top:12px; padding:10px; background:var(--bg); border-radius:6px; border-left:3px solid var(--accent);">';
-            html += 'Ask them: "' + esc(data.follow_up) + '"';
-            html += '</p>';
-        }
+        // Would you like to know more link
+        html += '<p style="margin-top:12px;">';
+        html += '<a class="card-link" onclick="sendMessage(\'show me the full product details\')">Would you like to know more?</a>';
+        html += '</p>';
         
         return html;
     };
