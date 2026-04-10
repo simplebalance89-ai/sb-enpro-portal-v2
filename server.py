@@ -446,6 +446,7 @@ async def chat(request: Request, req: ChatRequest):
         req.message,
         result.get("response", ""),
         products=result.get("products"),
+        session_id=req.session_id,
     )
     return result
 
