@@ -631,6 +631,47 @@ def _has_coreference(text: str) -> bool:
     text_lower = text.lower()
     return any(re.search(p, text_lower) for p in coref_patterns)
 
+
+def _fallback_lookup_response(message: str, catalog_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
+    """
+    Emergency local fallback when Azure model calls fail.
+    Returns a single-part recommendation if a part number can be extracted.
+    """
+    pns = _extract_part_numbers(message)
+    if not pns:
+        return None
+
+    for part_number in pns:
+        product = catalog_df[catalog_df["Part_Number"] == part_number]
+        if product.empty:
+            continue
+        row = product.iloc[0]
+        price = row.get("Price", "N/A")
+        stock = row.get("Total_Stock", 0)
+        manufacturer = row.get("Final_Manufacturer", "-")
+        description = str(row.get("Description", ""))[:120]
+        return {
+            "response_type": "recommendation",
+            "to_user": (
+                f"{part_number} — {manufacturer}. {description}. "
+                f"Price: ${price}. Total stock: {stock}."
+            ),
+            "thinking_trace": ["Azure reasoning unavailable", "Used local catalog fallback"],
+            "headline": f"{part_number} — {manufacturer}",
+            "picks": [{
+                "part_number": part_number,
+                "rank": 1,
+                "reason": "Direct match from local product catalog",
+                "specs": f"${price}, {stock} in stock",
+            }],
+            "follow_up_question": "Want me to compare this with alternatives in stock?",
+            "context_update": {"last_part": part_number},
+            "escalation": False,
+            "model_used": "fallback-local",
+            "cost": 0.0,
+        }
+    return None
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     if mastermind is None:
@@ -653,11 +694,33 @@ async def chat_endpoint(request: ChatRequest):
             message = context_injection
             logger.info(f"Coreference detected, injected context: {pn_list}")
     
-    # Get response from mastermind
-    result = await mastermind.chat(
-        message=message,
-        history=history
-    )
+    # Get response from mastermind; hard-fallback on provider failures
+    try:
+        result = await mastermind.chat(
+            message=message,
+            history=history
+        )
+    except Exception as e:
+        logger.error(f"V3 chat failed, using local fallback: {e}")
+        fallback = _fallback_lookup_response(message, mastermind.catalog_df)
+        if fallback:
+            result = fallback
+        else:
+            result = {
+                "response_type": "conversation",
+                "to_user": (
+                    "I'm having trouble connecting to my reasoning engine right now. "
+                    "Try a direct part lookup (example: CLR510)."
+                ),
+                "thinking_trace": ["Azure reasoning unavailable"],
+                "headline": None,
+                "picks": [],
+                "follow_up_question": None,
+                "context_update": {},
+                "escalation": False,
+                "model_used": "fallback-unavailable",
+                "cost": 0.0,
+            }
     
     # Track products discussed in this session for future coreference
     picks = result.get("picks", [])
