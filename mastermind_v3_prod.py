@@ -30,8 +30,6 @@ import search_azure
 
 logger = logging.getLogger("enpro.mastermind")
 
-logger = logging.getLogger("enpro.mastermind")
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # YOUR AZURE AI FOUNDRY MODEL DEPLOYMENTS (from environment)
 # ═══════════════════════════════════════════════════════════════════════════════
