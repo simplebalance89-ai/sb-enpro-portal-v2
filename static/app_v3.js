@@ -189,12 +189,13 @@
         container.appendChild(cardsContainer);
         
         // ONE follow-up question button (NOT a list of options)
-        if (data.follow_up) {
+        const followUp = data.follow_up_question || data.follow_up;
+        if (followUp) {
             const followUpBtn = document.createElement('button');
             followUpBtn.className = 'follow-up-btn';
-            followUpBtn.textContent = data.follow_up;
+            followUpBtn.textContent = followUp;
             followUpBtn.onclick = () => {
-                textInput.value = data.follow_up;
+                textInput.value = followUp;
                 handleSend();
             };
             container.appendChild(followUpBtn);
