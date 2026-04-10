@@ -108,6 +108,18 @@ def index_products():
     try:
         inv_df = load_csv_from_blob(INVENTORY_CSV)
         print(f"  Loaded {len(inv_df)} inventory records")
+        # Rename columns to match static_crosswalk (same logic as data_loader.py)
+        inv_rename = {}
+        if "P21_Item_ID" in inv_df.columns and "Part_Number" not in inv_df.columns:
+            inv_rename["P21_Item_ID"] = "Part_Number"
+        if "Qty_Loc10" in inv_df.columns:
+            inv_rename["Qty_Loc10"] = "Qty_Loc_10"
+            inv_rename["Qty_Loc12"] = "Qty_Loc_12"
+            inv_rename["Qty_Loc22"] = "Qty_Loc_22"
+            inv_rename["Qty_Loc30"] = "Qty_Loc_30"
+        if inv_rename:
+            inv_df = inv_df.rename(columns=inv_rename)
+            print(f"  Renamed inventory columns: {inv_rename}")
         # Merge on Part_Number
         df = static_df.merge(inv_df, on="Part_Number", how="left", suffixes=("", "_inv"))
     except Exception as e:
