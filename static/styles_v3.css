@@ -1,0 +1,581 @@
+/**
+ * Enpro Filtration Mastermind - Styles v3.0
+ * Mobile-first, voice-first, conversational UI
+ * 
+ * Addresses Andrew's review:
+ * - Mobile optimization (phones in parking lots)
+ * - No "400 products found" styling
+ * - Cards instead of tables
+ * - Voice-first input
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CSS VARIABLES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+:root {
+    --primary: #0078d4;
+    --primary-dark: #005a9e;
+    --accent: #00bcf2;
+    --success: #107c10;
+    --warning: #ffc107;
+    --error: #d13438;
+    
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --text: #323130;
+    --text-secondary: #605e5c;
+    
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 24px;
+    
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.1);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.12);
+    --shadow-lg: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BASE / RESET
+   ═══════════════════════════════════════════════════════════════════════════════ */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   LAYOUT: Mobile-First Container
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 100%;
+    margin: 0 auto;
+}
+
+/* Desktop: constrain width */
+@media (min-width: 768px) {
+    #app-container {
+        max-width: 480px;
+        border-left: 1px solid #e0e0e0;
+        border-right: 1px solid #e0e0e0;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HEADER / CONTEXT BAR
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#header {
+    background: var(--surface);
+    border-bottom: 1px solid #e0e0e0;
+    padding: var(--spacing-md);
+    flex-shrink: 0;
+}
+
+.logo {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Context Pills - Shows what system remembers */
+#contextBar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    min-height: 28px;
+}
+
+.context-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: #e8f4fd;
+    border: 1px solid #b3d9f7;
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--primary-dark);
+    white-space: nowrap;
+}
+
+.context-placeholder {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CHAT HISTORY
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#chatHistory {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    scroll-behavior: smooth;
+}
+
+/* Messages */
+.message {
+    display: flex;
+    max-width: 85%;
+}
+
+.message-user {
+    align-self: flex-end;
+}
+
+.message-assistant {
+    align-self: flex-start;
+}
+
+.message-bubble {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.message-user .message-bubble {
+    background: var(--primary);
+    color: white;
+    border-bottom-right-radius: var(--radius-sm);
+}
+
+.message-assistant .message-bubble {
+    background: var(--surface);
+    border: 1px solid #e0e0e0;
+    border-bottom-left-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+}
+
+.message-error .message-bubble {
+    background: #fde7e9;
+    border-color: var(--error);
+    color: var(--error);
+}
+
+.message-voice .message-bubble {
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.message-voice .message-bubble::before {
+    content: "🎤 ";
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   RECOMMENDATIONS (Max 3, No Counts)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.recommendation-container {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-sm) 0;
+    box-shadow: var(--shadow-md);
+}
+
+.recommendation-headline {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: var(--spacing-md);
+    line-height: 1.4;
+}
+
+.product-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+/* Product Card v3 - Clean, mobile-optimized */
+.product-card-v3 {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: #fafafa;
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--primary);
+}
+
+.card-rank {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.card-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.part-number {
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 4px;
+}
+
+.part-reason {
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+.part-specs {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.card-action {
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.card-action:hover {
+    background: var(--primary);
+    color: white;
+}
+
+.card-action:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* Follow-up Button (ONE question, not list) */
+.follow-up-btn {
+    width: 100%;
+    padding: var(--spacing-md);
+    background: #f0f7ff;
+    border: 2px dashed var(--primary);
+    border-radius: var(--radius-md);
+    color: var(--primary);
+    font-size: 15px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.follow-up-btn:hover {
+    background: #e0f0ff;
+    border-style: solid;
+}
+
+.follow-up-btn::before {
+    content: "💭 ";
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BRIEFING SCRIPT (Pregame UI)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.briefing-container {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-sm) 0;
+    box-shadow: var(--shadow-md);
+    border-top: 4px solid var(--accent);
+}
+
+.briefing-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.briefing-icon {
+    font-size: 24px;
+}
+
+.briefing-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.briefing-section:last-child {
+    margin-bottom: 0;
+}
+
+.briefing-section.highlight {
+    background: #fff8e6;
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--warning);
+}
+
+.briefing-section.warning {
+    background: #fde7e9;
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--error);
+}
+
+.section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.script-box {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text);
+    padding: var(--spacing-md);
+    background: #f8f8f8;
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--accent);
+    font-style: italic;
+}
+
+.question-box {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    padding: var(--spacing-md);
+    background: white;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--warning);
+}
+
+.briefing-pick {
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.briefing-pick:last-child {
+    border-bottom: none;
+}
+
+.briefing-pick strong {
+    font-family: 'SF Mono', Monaco, monospace;
+    color: var(--primary);
+}
+
+.briefing-pick p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.speak-btn {
+    margin-top: var(--spacing-sm);
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.speak-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   INPUT AREA (Voice-First)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#inputArea {
+    background: var(--surface);
+    border-top: 1px solid #e0e0e0;
+    padding: var(--spacing-md);
+    flex-shrink: 0;
+}
+
+/* Big Mic Button */
+#micBtn {
+    width: 100%;
+    padding: var(--spacing-lg);
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: var(--spacing-md);
+}
+
+#micBtn:hover {
+    background: var(--primary-dark);
+}
+
+#micBtn.recording {
+    background: var(--error);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+#micBtn svg {
+    width: 24px;
+    height: 24px;
+}
+
+/* Text Input (Secondary) */
+.text-input-row {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+#textInput {
+    flex: 1;
+    padding: var(--spacing-md);
+    border: 1px solid #d0d0d0;
+    border-radius: var(--radius-lg);
+    font-size: 16px;
+    outline: none;
+}
+
+#textInput:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+}
+
+#textInput::placeholder {
+    color: var(--text-secondary);
+}
+
+#sendBtn {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#sendBtn:hover {
+    background: var(--primary-dark);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TYPING INDICATOR
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#typingIndicator {
+    display: none;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.typing-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.typing-dots span {
+    width: 8px;
+    height: 8px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: 0s; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-8px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   UTILITY
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DELETE OLD STYLES (Comment these out in your old CSS)
+   ═══════════════════════════════════════════════════════════════════════════════
+   
+   DELETE:
+   - .command-list
+   - .command-suggestions  
+   - .product-table
+   - .product-grid
+   - .count-badge ("400 found")
+   - .help-menu
+   - .intent-buttons
+   
+   REPLACE WITH:
+   - .recommendation-container
+   - .product-card-v3
+   - .briefing-container
+   - .context-pill
+*/
