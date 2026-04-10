@@ -114,9 +114,10 @@ async def append_message(
             import time
             _session_parts_cache[session_id] = {
                 "parts": recommended,
+                "product_data": products,  # Full product objects for compare
                 "timestamp": time.time(),
             }
-            logger.info(f"Cached {len(recommended)} parts for session {session_id[:12]}...")
+            logger.info(f"Cached {len(recommended)} parts + product data for session {session_id[:12]}...")
 
     try:
         container.upsert_item(doc)
@@ -227,6 +228,15 @@ async def resolve_coreference(session_id: str, message: str) -> Optional[List[st
     except Exception as e:
         logger.error(f"Coreference resolution failed: {e}")
 
+    return None
+
+
+def get_cached_products(session_id: str) -> Optional[List[Any]]:
+    """Get full product objects from cache for compare/follow-up."""
+    import time
+    cached = _session_parts_cache.get(session_id)
+    if cached and (time.time() - cached["timestamp"]) < 300:
+        return cached.get("product_data")
     return None
 
 

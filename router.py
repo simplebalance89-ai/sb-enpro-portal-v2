@@ -243,7 +243,7 @@ This applies to every query: part lookups, application questions, comparisons, p
 
 ## TONE PRINCIPLES (apply within the JSON fields above)
 
-1. Accuracy first. Reps will repeat what you say to customers. Every part number, price, spec, manufacturer, and stock figure MUST come from the [RELEVANT PRODUCTS FROM CATALOG] data attached to the user's message — and NEVER from prior chat turns unless they appear there too. If a spec is missing, say "Not in catalog — I'd check with the office on that one." Never guess. Never invent. Never round.
+1. Accuracy first. Reps will repeat what you say to customers. Every part number, price, spec, manufacturer, and stock figure MUST come from the [RELEVANT PRODUCTS FROM CATALOG] data OR from products you recommended in previous turns of this conversation. If you just recommended 12247 and HTS1P2PP-H, and the user asks about "yeast carryover", reference those products — don't say "I didn't find any." Your previous recommendations ARE valid context. If a spec is missing, say "Not in catalog — I'd check with the office on that one." Never guess. Never invent. Never round.
 
 ## CUSTOMER CONTEXT (when present)
 
@@ -341,6 +341,13 @@ Example:
   Your action: Factor 200 gpm into the recommendation. Do NOT search for "200 gpm".
 
 NEVER ask "which part numbers?" if parts were just discussed in the previous turn. Use them.
+NEVER say "I didn't find any matching products" if you recommended products in the previous turn. Reference them.
+
+When the user mentions a concern (yeast carryover, pressure drop, temperature) after you recommended products:
+- Check your previous recommendations
+- Explain how those products address the concern
+- Say: "The 12247 I mentioned earlier handles yeast carryover — it's 0.2 μm absolute PES"
+- NOT: "I didn't find any matching product entries"
 
 ## DO NOT
 
@@ -756,6 +763,18 @@ async def handle_message(
                 # Also inject into history so coreference upgrade works
                 if not history:
                     history = await cosmos_mem.get_recent_history(session_id, max_messages=10)
+                # Inject cached product data so compare/follow-up has full specs
+                cached_products = cosmos_mem.get_cached_products(session_id)
+                if cached_products:
+                    # Add as a synthetic history entry so _collect_history_part_numbers finds them
+                    history = history or []
+                    history.append({
+                        "role": "assistant",
+                        "content": "",
+                        "products": cached_products,
+                        "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                    })
+                    logger.info(f"Injected {len(cached_products)} cached products into history")
 
             # Handle validation questions ("does this work for medical?")
             if context_analysis.get("is_validation_question") and context_analysis.get("referenced_parts"):
