@@ -1612,7 +1612,7 @@
             html += '<p>' + esc(data.body) + '</p>';
         }
         
-        // Top 2-3 product picks - render as cards
+        // Top 2-3 product picks - render as cards (name first, PN in parens)
         if (data.picks && data.picks.length > 0) {
             data.picks.slice(0, 3).forEach(function(pick) {
                 var product = (data.products || []).find(function(prod) {
@@ -1624,9 +1624,16 @@
                         appendCard(renderProductCard(product));
                     }, 100);
                 } else {
-                    // Fallback to text if product not in data.products
+                    // Fallback to text - show description first, then PN
+                    var desc = pick.part_number;
+                    if (pick.reason && pick.reason.includes('—')) {
+                        var parts = pick.reason.split('—');
+                        desc = parts[0].trim();
+                        pick.reason = parts.slice(1).join('—').trim();
+                    }
                     html += '<div style="margin:10px 0; padding:10px; background:var(--bg); border-left:3px solid var(--accent);">';
-                    html += '<strong>' + esc(pick.part_number) + '</strong>';
+                    html += '<strong>' + esc(desc) + '</strong>';
+                    html += ' <span style="color:var(--text-light); font-size:12px;">(' + esc(pick.part_number) + ')</span>';
                     if (pick.reason) {
                         html += ' — ' + esc(pick.reason);
                     }
