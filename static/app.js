@@ -1505,7 +1505,7 @@
             }
             if (watchMatch) concerns.push('Watch out: ' + watchMatch[1].trim());
             if (leadMatch) product = leadMatch[1].replace(/\*\*/g, '').trim();
-            if (keyQMatch) question = keyQMatch[1].replace(/[""\u201c\u201d']/g, '').trim();
+            if (keyQMatch) question = keyQMatch[1].replace(/["']/g, '').trim();
         } else {
             // Legacy format: extract numbered items
             var numItems = text.match(/\d+\.\s+\*?\*?([^\n*]+)/g);
@@ -1520,7 +1520,7 @@
             if (prodMatch) product = prodMatch[1].trim();
 
             // Extract closing question
-            var qMatch = text.match(/(?:Key Question|Closing Question|Ask)[:\s]*[""\u201c]?([^""\u201d\n]+)/i);
+            var qMatch = text.match(/(?:Key Question|Closing Question|Ask)[:\s]*["]?([^"\n]+)/i);
             if (qMatch) question = qMatch[1].trim().replace(/["']/g, '');
         }
 
@@ -1568,7 +1568,7 @@
         if (data.question) {
             html += '<div style="margin-bottom:12px; background:var(--bg); padding:10px 12px; border-radius:6px; border-left:3px solid var(--accent); cursor:pointer;" onclick="copyToClipboard(\'' + esc(data.question).replace(/'/g, "\\'") + '\', this)">';
             html += '<div style="font-size:11px; text-transform:uppercase; color:var(--text-light); font-weight:700; letter-spacing:0.5px; margin-bottom:4px;">Opening Question <span style="font-size:10px; font-weight:400;">(click to copy)</span></div>';
-            html += '<div style="font-size:14px; font-style:italic; color:var(--text);">\u201c' + esc(data.question) + '\u201d</div>';
+            html += '<div style="font-size:14px; font-style:italic; color:var(--text);">"' + esc(data.question) + '"</div>';
             html += '</div>';
         }
 
@@ -1612,15 +1612,26 @@
             html += '<p>' + esc(data.body) + '</p>';
         }
         
-        // Top 2-3 product picks with detailed reasons
+        // Top 2-3 product picks - render as cards
         if (data.picks && data.picks.length > 0) {
             data.picks.slice(0, 3).forEach(function(pick) {
-                html += '<div style="margin:10px 0; padding:10px; background:var(--bg); border-left:3px solid var(--accent);">';
-                html += '<strong>' + esc(pick.part_number) + '</strong>';
-                if (pick.reason) {
-                    html += ' — ' + esc(pick.reason);
+                var product = (data.products || []).find(function(prod) {
+                    return (prod.Part_Number || prod.part_number) === pick.part_number;
+                });
+                if (product) {
+                    // Render full product card
+                    setTimeout(function() {
+                        appendCard(renderProductCard(product));
+                    }, 100);
+                } else {
+                    // Fallback to text if product not in data.products
+                    html += '<div style="margin:10px 0; padding:10px; background:var(--bg); border-left:3px solid var(--accent);">';
+                    html += '<strong>' + esc(pick.part_number) + '</strong>';
+                    if (pick.reason) {
+                        html += ' — ' + esc(pick.reason);
+                    }
+                    html += '</div>';
                 }
-                html += '</div>';
             });
         }
         
