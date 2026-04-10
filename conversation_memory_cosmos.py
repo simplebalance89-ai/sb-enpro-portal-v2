@@ -18,7 +18,7 @@ TTL_SECONDS = RETENTION_DAYS * 86400  # 604800 seconds = 7 days
 MAX_HISTORY_MESSAGES = 30
 MAX_CONTENT_CHARS = 8000
 
-COSMOS_ENDPOINT = os.environ.get("COSMOS_ENDPOINT", "")
+COSMOS_ENDPOINT = os.environ.get("COSMOS_ENDPOINT", "https://enpro-sessions.documents.azure.com:443/")
 COSMOS_KEY = os.environ.get("COSMOS_KEY", "")
 COSMOS_DATABASE = os.environ.get("COSMOS_DATABASE", "enpro-fm")
 COSMOS_CONTAINER = "conversations"
