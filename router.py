@@ -647,7 +647,7 @@ async def classify_intent(message: str) -> str:
         return "supplier"
     if msg_lower.startswith("price "):
         return "price"
-    if msg_lower.startswith("pregame "):
+    if msg_lower.startswith("pregame ") or "meeting" in msg_lower or "customer" in msg_lower:
         return "pregame"
     if msg_lower in ("help", "commands"):
         return "help"
