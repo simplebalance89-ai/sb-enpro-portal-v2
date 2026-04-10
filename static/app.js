@@ -631,6 +631,12 @@
             case 'compare':
                 if (data.products && data.products.length >= 2) {
                     appendCard(renderCompareTable(data.products));
+                    // Follow-up: suggest other comparisons
+                    appendMessage('bot',
+                        '<div style="font-style:italic;color:#444;font-size:14px;margin-top:8px;">' +
+                        'What would you like to compare next — other manufacturers, specs, or applications?' +
+                        '</div>'
+                    );
                     scrollToBottom();
                 }
                 break;
