@@ -398,18 +398,16 @@ async def chat(request: Request, req: ChatRequest):
 
     try:
         update_from_message(req.session_id, req.message, state.df)
-        # Try v3 mastermind first, fall back to legacy
-        result = await _v3_handle_message(req.message, req.session_id, history)
-        if result is None:
-            result = await handle_message(
-                message=req.message,
-                session_id=req.session_id,
-                mode=req.mode,
-                df=state.df,
-                chemicals_df=state.chemicals_df,
-                history=history or None,
-                user_rep_id=user_rep_id,
-            )
+        # Use legacy router with fixed azure_client.py (max_completion_tokens, no temperature)
+        result = await handle_message(
+            message=req.message,
+            session_id=req.session_id,
+            mode=req.mode,
+            df=state.df,
+            chemicals_df=state.chemicals_df,
+            history=history or None,
+            user_rep_id=user_rep_id,
+        )
         result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
@@ -475,18 +473,15 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
     # Run the handler — this is the blocking GPT call
     try:
         update_from_message(req.session_id, req.message, state.df)
-        # Try v3 mastermind first, fall back to legacy
-        result = await _v3_handle_message(req.message, req.session_id, history)
-        if result is None:
-            result = await handle_message(
-                message=req.message,
-                session_id=req.session_id,
-                mode=req.mode,
-                df=state.df,
-                chemicals_df=state.chemicals_df,
-                history=history or None,
-                user_rep_id=user_rep_id,
-            )
+        result = await handle_message(
+            message=req.message,
+            session_id=req.session_id,
+            mode=req.mode,
+            df=state.df,
+            chemicals_df=state.chemicals_df,
+            history=history or None,
+            user_rep_id=user_rep_id,
+        )
         result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Stream chat error: {e}", exc_info=True)
