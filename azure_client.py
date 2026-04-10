@@ -93,9 +93,9 @@ async def chat_completion(
     payload = {
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_completion_tokens": max_tokens,
     }
-    
+
     # New Azure AI Foundry endpoint requires model in payload
     if is_new_endpoint:
         payload["model"] = deployment
