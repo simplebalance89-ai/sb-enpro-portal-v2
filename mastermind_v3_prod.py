@@ -156,6 +156,52 @@ class EnproMastermindV3:
         logger.info(f"   Reasoning: {O3_MINI_DEPLOYMENT}")
         logger.info(f"   Deep: {O3_MINI_HIGH_DEPLOYMENT}")
         logger.info(f"   Narrow: {GPT54_MINI_DEPLOYMENT}")
+
+    def _chat_create(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, str]],
+        want_json: bool = False,
+        max_completion_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ):
+        """
+        Azure-safe wrapper for chat.completions.create with compatibility retries.
+        Some deployments reject response_format/temperature/max_completion_tokens.
+        """
+        base = {"model": model, "messages": messages}
+        if max_completion_tokens is not None:
+            base["max_completion_tokens"] = max_completion_tokens
+        if temperature is not None:
+            base["temperature"] = temperature
+        if want_json:
+            base["response_format"] = {"type": "json_object"}
+
+        attempts: List[Dict[str, Any]] = [dict(base)]
+        if want_json:
+            no_json = dict(base)
+            no_json.pop("response_format", None)
+            attempts.append(no_json)
+        if max_completion_tokens is not None:
+            legacy_tokens = dict(base)
+            legacy_tokens.pop("max_completion_tokens", None)
+            legacy_tokens["max_tokens"] = max_completion_tokens
+            attempts.append(legacy_tokens)
+        if temperature is not None:
+            no_temp = dict(base)
+            no_temp.pop("temperature", None)
+            attempts.append(no_temp)
+
+        last_err: Optional[Exception] = None
+        for kwargs in attempts:
+            try:
+                return self.client.chat.completions.create(**kwargs)
+            except Exception as e:
+                last_err = e
+                logger.warning(f"Chat call retry for model={model}: {e}")
+                continue
+        raise last_err if last_err else RuntimeError("Unknown chat completion failure")
     
     async def chat(self, message: str, history: List[Dict] = None) -> Dict[str, Any]:
         """
@@ -207,14 +253,14 @@ class EnproMastermindV3:
         Cost: ~$0.0001 vs o4-mini ~$0.015 = 99% cheaper for classification
         """
         try:
-            response = self.client.chat.completions.create(
+            response = self._chat_create(
                 model=PHI4_DEPLOYMENT,
                 messages=[
                     {"role": "system", "content": PHI4_CLASSIFIER_PROMPT},
                     {"role": "user", "content": message}
                 ],
                 temperature=0.0,
-                max_completion_tokens=20
+                max_completion_tokens=20,
             )
             
             category = response.choices[0].message.content.strip().upper()
@@ -305,13 +351,13 @@ class EnproMastermindV3:
         General questions -> GPT-4.1-mini.
         Cost: ~$0.002
         """
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=PHI4_FAST_DEPLOYMENT,
             messages=[
                 {"role": "system", "content": "You are Enpro's filtration expert. Answer briefly and helpfully. 2-3 sentences max."},
                 {"role": "user", "content": message}
             ],
-            max_completion_tokens=150
+            max_completion_tokens=150,
         )
         
         return {
@@ -332,7 +378,7 @@ class EnproMastermindV3:
         Voice input that needs phonetic resolution.
         """
         # Use GPT-5-mini to resolve phonetics
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=GPT54_MINI_DEPLOYMENT,
             messages=[{
                 "role": "system",
@@ -341,7 +387,7 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"Transcription: '{message}'"
             }],
-            response_format={"type": "json_object"}
+            want_json=True,
         )
         
         parsed = json.loads(response.choices[0].message.content)
@@ -383,7 +429,7 @@ class EnproMastermindV3:
         """
         history_text = self._format_history(history)
         
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=O3_MINI_HIGH_DEPLOYMENT,
             messages=[{
                 "role": "system",
@@ -392,7 +438,7 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"History: {history_text}\n\nPregame request: {message}"
             }],
-            response_format={"type": "json_object"}
+            want_json=True,
         )
         
         parsed = json.loads(response.choices[0].message.content)
@@ -419,7 +465,7 @@ class EnproMastermindV3:
         history_text = self._format_history(history)
         products_text = json.dumps(products[:3], indent=2) if products else "No matching products in catalog"
         
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=O3_MINI_DEPLOYMENT,
             messages=[{
                 "role": "system",
@@ -428,7 +474,7 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"History: {history_text}\n\nAvailable products: {products_text}\n\nQuery: {message}"
             }],
-            response_format={"type": "json_object"}
+            want_json=True,
         )
         
         parsed = json.loads(response.choices[0].message.content)
@@ -479,7 +525,7 @@ class EnproMastermindV3:
         history_text = self._format_history(history)
         products_text = json.dumps(products[:3], indent=2) if products else "No products available"
         
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=O3_MINI_DEPLOYMENT,
             messages=[{
                 "role": "system",
@@ -488,7 +534,7 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"Conversation history:\n{history_text}\n\nProducts discussed:\n{products_text}\n\nFollow-up query: {message}"
             }],
-            response_format={"type": "json_object"}
+            want_json=True,
         )
         
         parsed = json.loads(response.choices[0].message.content)
@@ -534,7 +580,7 @@ class EnproMastermindV3:
             "stock": p["stock"]["total"] if isinstance(p["stock"], dict) else p["stock"]
         } for p in candidates])
         
-        response = self.client.chat.completions.create(
+        response = self._chat_create(
             model=GPT54_MINI_DEPLOYMENT,
             messages=[{
                 "role": "system",
@@ -543,8 +589,8 @@ class EnproMastermindV3:
                 "role": "user",
                 "content": f"Query: {message}\nCandidates: {candidates_text}"
             }],
-            response_format={"type": "json_object"},
-            temperature=0.0
+            want_json=True,
+            temperature=0.0,
         )
         
         result = json.loads(response.choices[0].message.content)
