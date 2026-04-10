@@ -17,8 +17,8 @@ from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
+import os
 import pandas as pd
-from azure.identity import DefaultAzureCredential
 from azure.openai import AzureOpenAI
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -26,14 +26,19 @@ from pydantic import BaseModel
 logger = logging.getLogger("enpro.mastermind")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# YOUR AZURE AI FOUNDRY MODEL DEPLOYMENTS
+# YOUR AZURE AI FOUNDRY MODEL DEPLOYMENTS (from environment)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PHI4_DEPLOYMENT = "phi-4-classifier"           # Classification (~$0.0001/query)
-PHI4_FAST_DEPLOYMENT = "gpt-4.1-mini"          # Fast responses (~$0.002/query)
-O3_MINI_DEPLOYMENT = "o4-mini-reasoning"       # Complex reasoning (~$0.015/query)
-O3_MINI_HIGH_DEPLOYMENT = "gpt-4.1"            # Strong reasoning (~$0.02/query)
-GPT54_MINI_DEPLOYMENT = "gpt-5-mini"           # Product narrowing (~$0.005/query)
+PHI4_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_CLASSIFIER", "phi-4-classifier")
+PHI4_FAST_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_FAST", "gpt-4.1-mini")
+O3_MINI_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_REASONING", "o4-mini-reasoning")
+O3_MINI_HIGH_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_STRATEGIC", "gpt-4.1")
+GPT54_MINI_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_ROUTER", "gpt-5-mini")
+
+# Azure endpoint configuration
+AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://enpro-filtration-ai.services.ai.azure.com/api/projects/enpro-filtration-ai-project/openai/v1")
+AZURE_API_KEY = os.getenv("AZURE_OPENAI_KEY", "")
+AZURE_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2026-01-01")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SYSTEM PROMPTS
@@ -125,10 +130,14 @@ class EnproMastermindV3:
     def __init__(self, catalog_df: pd.DataFrame):
         self.catalog_df = catalog_df
         
+        # Use API key auth for Azure AI Foundry
+        if not AZURE_API_KEY:
+            raise ValueError("AZURE_OPENAI_KEY environment variable is required")
+        
         self.client = AzureOpenAI(
-            azure_endpoint="https://enpro-filtration-ai.services.ai.azure.com/",
-            api_version="2024-12-01-preview",
-            credential=DefaultAzureCredential()
+            azure_endpoint=AZURE_ENDPOINT.rstrip('/'),
+            api_version=AZURE_API_VERSION,
+            api_key=AZURE_API_KEY
         )
         
         logger.info(f"✅ Mastermind initialized with models:")
