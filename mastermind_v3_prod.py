@@ -117,6 +117,7 @@ RESPONSE FORMAT (JSON only):
   "escalation": false,
   "escalation_reason": null
 }
+"""
 
 # Safety escalation triggers (handled in code, not in prompt)
 SAFETY_TRIGGERS = [
@@ -498,7 +499,7 @@ class EnproMastermindV3:
         return parsed
     
     async def _search_products(self, query: str) -> List[Dict]:
-        """Search catalog with multiple strategies."""
+        # Search catalog with multiple strategies.
         results = []
         query_upper = query.upper()
         
@@ -557,7 +558,7 @@ class EnproMastermindV3:
         return [p for p in products if p["part_number"] in top_pns][:3]
     
     def _product_to_dict(self, row) -> Dict:
-        """Convert DataFrame row to dict."""
+        # Convert DataFrame row to dict.
         return {
             "part_number": row.get('Part_Number'),
             "description": row.get('Description'),
@@ -576,7 +577,7 @@ class EnproMastermindV3:
         }
     
     def _format_history(self, history: List[Dict]) -> str:
-        """Format last 3 turns for context."""
+        # Format last 3 turns for context.
         formatted = []
         for turn in history[-3:]:
             role = "User" if turn.get("role") == "user" else "Assistant"
