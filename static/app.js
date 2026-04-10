@@ -907,12 +907,22 @@
             return;
         }
 
-        // Pregame intent — render structured meeting prep (conversational)
+        // Pregame intent — render structured meeting prep (conversational, NO product dump)
         if (data.intent === 'pregame' && data.structured) {
             var pregameHtml = renderConversationalPregame(data);
             appendMessage('bot', pregameHtml);
-            if (data.products && data.products.length > 0) {
-                await renderProductsBatched(data.products);
+            // Only show 1-2 product cards if picks exist, not the full dump
+            if (data.picks && data.picks.length > 0) {
+                var pickCards = [];
+                data.picks.forEach(function(p) {
+                    var product = (data.products || []).find(function(prod) {
+                        return (prod.Part_Number || prod.part_number) === p.part_number;
+                    });
+                    if (product) pickCards.push(product);
+                });
+                if (pickCards.length > 0) {
+                    await renderProductsBatched(pickCards.slice(0, 2));
+                }
             }
             scrollToBottom();
             searchCount++;
