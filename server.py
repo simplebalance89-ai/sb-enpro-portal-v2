@@ -466,7 +466,11 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
     # flush back-to-back as fast as the network can carry them, which is
     # closer to real perceived-streaming UX. Real token streaming via
     # Azure OpenAI stream=True is the next architectural step.
-    if result.get("structured") and result.get("headline"):
+    
+    # V2.16: Handle compare intent specially — emit single compare event
+    if result.get("intent") == "compare" and result.get("products") and len(result.get("products")) >= 2:
+        yield _sse_event("compare", {"products": result.get("products")[:5]})
+    elif result.get("structured") and result.get("headline"):
         yield _sse_event("headline", {"text": result["headline"]})
 
         if result.get("body"):

@@ -628,6 +628,13 @@
                 scrollToBottom();
                 break;
 
+            case 'compare':
+                if (data.products && data.products.length >= 2) {
+                    appendCard(renderCompareTable(data.products));
+                    scrollToBottom();
+                }
+                break;
+
             case 'other':
                 if (data.products && data.products.length > 0) {
                     appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
