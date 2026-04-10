@@ -12,49 +12,39 @@
     
     var scenarios = [
         {
-            name: 'Brewery - Purity/Yield',
-            steps: [
-                'brewery customer meeting tomorrow',
-                'purity per batch and yield',
-                'they are using depth sheets',
-                'what about final filtration'
-            ]
+            name: 'Brewery',
+            step1: 'brewery customer meeting tomorrow',
+            step2: 'purity per batch and yield',
+            step3: 'they are using depth sheets',
+            step4: 'what about final filtration'
         },
         {
-            name: 'Paint Booth - Overspray',
-            steps: [
-                'paint spray booth customer meeting',
-                'overspray buildup',
-                'compare the two options',
-                'what is the price difference'
-            ]
+            name: 'Paint Booth',
+            step1: 'paint spray booth customer meeting',
+            step2: 'overspray buildup',
+            step3: 'compare the two options',
+            step4: 'what is the price difference'
         },
         {
-            name: 'Pharma - Endotoxin',
-            steps: [
-                'pharmaceutical sterile filtration meeting',
-                'endotoxin removal',
-                'what membranes do you recommend',
-                'compare PES vs PTFE'
-            ]
+            name: 'Pharma',
+            step1: 'pharmaceutical sterile filtration meeting',
+            step2: 'endotoxin removal',
+            step3: 'what membranes do you recommend',
+            step4: 'compare PES vs PTFE'
         },
         {
-            name: 'Hydraulic - 10 Micron',
-            steps: [
-                'hydraulic oil filtration customer',
-                '10 micron particles damaging pumps',
-                'Pall or competitor',
-                'what is the beta rating'
-            ]
+            name: 'Hydraulic',
+            step1: 'hydraulic oil filtration customer',
+            step2: '10 micron particles damaging pumps',
+            step3: 'Pall or competitor',
+            step4: 'what is the beta rating'
         },
         {
-            name: 'Water - NSF 61',
-            steps: [
-                'municipal water treatment meeting',
-                'NSF 61 certification required',
-                'what is the flow rate',
-                'compare Ultipleat vs Marksman'
-            ]
+            name: 'Water',
+            step1: 'municipal water treatment meeting',
+            step2: 'NSF 61 certification required',
+            step3: 'what is the flow rate',
+            step4: 'compare Ultipleat vs Marksman'
         }
     ];
     
@@ -78,7 +68,7 @@
     label.style.textAlign = 'center';
     container.appendChild(label);
     
-    scenarios.forEach(function(scenario, idx) {
+    scenarios.forEach(function(scenario) {
         var btn = document.createElement('button');
         btn.innerHTML = scenario.name;
         btn.style.padding = '10px 16px';
@@ -94,24 +84,47 @@
             btn.innerHTML = 'Running...';
             btn.style.background = '#999';
             
-            var delay = 100;
-            scenario.steps.forEach(function(step, stepIdx) {
-                setTimeout(function() {
-                    var input = document.getElementById('userInput');
-                    if (input) {
-                        input.value = step;
-                        input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
-                    }
-                    btn.innerHTML = 'T' + (stepIdx + 1) + '/' + scenario.steps.length;
-                }, delay);
-                delay = delay + 8000;
-            });
+            setTimeout(function() {
+                var input = document.getElementById('userInput');
+                if (input) {
+                    input.value = scenario.step1;
+                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+                }
+                btn.innerHTML = 'T1/4';
+            }, 100);
+            
+            setTimeout(function() {
+                var input = document.getElementById('userInput');
+                if (input) {
+                    input.value = scenario.step2;
+                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+                }
+                btn.innerHTML = 'T2/4';
+            }, 8000);
+            
+            setTimeout(function() {
+                var input = document.getElementById('userInput');
+                if (input) {
+                    input.value = scenario.step3;
+                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+                }
+                btn.innerHTML = 'T3/4';
+            }, 16000);
+            
+            setTimeout(function() {
+                var input = document.getElementById('userInput');
+                if (input) {
+                    input.value = scenario.step4;
+                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+                }
+                btn.innerHTML = 'T4/4';
+            }, 24000);
             
             setTimeout(function() {
                 btn.innerHTML = scenario.name;
                 btn.disabled = false;
                 btn.style.background = '#0066CC';
-            }, delay + 2000);
+            }, 32000);
         };
         
         container.appendChild(btn);
