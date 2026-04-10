@@ -1607,10 +1607,15 @@
             html += '<p>' + esc(data.headline) + '</p>';
         }
         
-        // Body - lead with advice (strip GPT's numbering)
+        // Body - lead with advice (strip GPT's numbering, bold the labels)
         if (data.body) {
-            var bodyClean = data.body.replace(/^\d+\.\s*/gm, '').replace(/^\d+\)\s*/gm, '');
-            html += '<p>' + esc(bodyClean) + '</p>';
+            var bodyClean = data.body
+                .replace(/^\d+\.\s*/gm, '')
+                .replace(/^\d+\)\s*/gm, '')
+                .replace(/Lead with:/g, '<strong>Lead with:</strong>')
+                .replace(/Avoid:/g, '<strong>Avoid:</strong>')
+                .replace(/Watch for:/g, '<strong>Watch for:</strong>');
+            html += '<p>' + bodyClean + '</p>';
         }
         
         // Top 2-3 product picks - render as cards (name first, PN in parens)
@@ -1647,10 +1652,10 @@
             });
         }
         
-        // Follow-up questions
+        // Follow-up question
         if (data.follow_up) {
-            html += '<p style="font-style:italic; margin-top:12px;">';
-            html += esc(data.follow_up);
+            html += '<p style="margin-top:12px;">';
+            html += '<strong>Follow-up question:</strong> <span style="font-style:italic;">' + esc(data.follow_up) + '</span>';
             html += '</p>';
         }
         
