@@ -10,7 +10,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Azure OpenAI
-    AZURE_OPENAI_ENDPOINT: str = Field(default="", description="Azure OpenAI endpoint URL")
+    AZURE_OPENAI_ENDPOINT: str = Field(default="https://enpro-filtration-ai.services.ai.azure.com/api/projects/enpro-filtration-ai-project/openai/v1", description="Azure OpenAI endpoint URL")
     AZURE_OPENAI_KEY: str = Field(default="", description="Azure OpenAI API key")
     AZURE_OPENAI_API_VERSION: str = Field(default="2024-12-01-preview", description="Azure OpenAI API version")
 
