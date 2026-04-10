@@ -203,7 +203,7 @@ app.include_router(auth.router)
 
 # NEW: v3.0 Unified backend router (add this)
 if settings.USE_UNIFIED_HANDLER and mastermind_router:
-    app.include_router(mastermind_router, prefix="/api/v3")
+    app.include_router(mastermind_router)
     logger.info("Mounted /api/v3 routes")
 
 
