@@ -128,6 +128,8 @@ class Settings(BaseSettings):
     ENABLE_VOICE: bool = Field(default=True, description="Enable voice search")
     ENABLE_REASONING_TRACE: bool = Field(default=True, description="Show reasoning traces in UI")
     USE_MODULAR_MODELS: bool = Field(default=True, description="Use new modular AI architecture")
+    USE_UNIFIED_HANDLER: bool = Field(default=False, description="Use v3.0 unified backend handler")
+    USE_PHI4_ROUTING: bool = Field(default=False, description="Use Phi-4 for intelligent query routing")
     USE_HARDCODED_CHEMICAL: bool = Field(default=True, description="Use hardcoded chemical lookups")
     ENABLE_SAFETY_CHECK: bool = Field(default=True, description="Enable safety escalation checks")
 
