@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Deployments
     AZURE_DEPLOYMENT_ROUTER: str = Field(default="gpt-4.1-mini", description="Router model deployment name")
-    AZURE_DEPLOYMENT_REASONING: str = Field(default="gpt-4.1", description="Reasoning model deployment name")
+    AZURE_DEPLOYMENT_REASONING: str = Field(default="gpt-4o", description="Reasoning model deployment name")
 
     # Azure Blob Storage
     AZURE_BLOB_SAS: str = Field(default="", description="SAS token for Azure Blob access")
