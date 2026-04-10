@@ -25,6 +25,11 @@ COSMOS_CONTAINER = "conversations"
 
 _container = None
 
+# In-memory cache for last recommended parts per session (fixes race condition)
+# When Turn 1 saves parts, they're cached here immediately.
+# Turn 2's resolve_coreference reads from cache first, Cosmos second.
+_session_parts_cache: dict = {}  # {session_id: {"parts": [...], "timestamp": float}}
+
 
 def _get_container():
     """Get or create the Cosmos DB container client."""
@@ -105,6 +110,13 @@ async def append_message(
                     recommended.append(str(pn).strip())
         if recommended:
             doc["recommended_parts"] = recommended
+            # Cache immediately for race condition fix
+            import time
+            _session_parts_cache[session_id] = {
+                "parts": recommended,
+                "timestamp": time.time(),
+            }
+            logger.info(f"Cached {len(recommended)} parts for session {session_id[:12]}...")
 
     try:
         container.upsert_item(doc)
@@ -168,15 +180,30 @@ async def get_recent_history(
 
 async def resolve_coreference(session_id: str, message: str) -> Optional[List[str]]:
     """
-    Resolve 'those', 'these', 'them', 'compare those' to actual part numbers
-    from the most recent assistant turn in this session.
+    Resolve 'those', 'these', 'them', 'compare those' to actual part numbers.
+
+    Uses in-memory cache first (instant, no race condition), then Cosmos fallback.
     """
+    import time
+
     pronouns = ["those", "these", "them", "they", "compare those", "compare them",
-                "those filters", "these parts", "those parts"]
+                "those filters", "these parts", "those parts", "compare these"]
     msg_lower = message.lower()
     if not any(p in msg_lower for p in pronouns):
         return None
 
+    # Fix 1: Check in-memory cache first (no race condition)
+    cached = _session_parts_cache.get(session_id)
+    if cached:
+        age = time.time() - cached["timestamp"]
+        if age < 300:  # Cache valid for 5 minutes
+            logger.info(f"Coreference resolved from cache: {cached['parts']} (age: {age:.1f}s)")
+            return cached["parts"]
+        else:
+            # Expired, clean up
+            del _session_parts_cache[session_id]
+
+    # Fix 2: Cosmos DB fallback
     container = _get_container()
     if not container:
         return None
@@ -195,7 +222,7 @@ async def resolve_coreference(session_id: str, message: str) -> Optional[List[st
         for item in items:
             parts = item.get("recommended_parts", [])
             if parts:
-                logger.info(f"Coreference resolved: {parts}")
+                logger.info(f"Coreference resolved from Cosmos: {parts}")
                 return parts
     except Exception as e:
         logger.error(f"Coreference resolution failed: {e}")
