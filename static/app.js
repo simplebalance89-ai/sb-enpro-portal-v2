@@ -1607,9 +1607,10 @@
             html += '<p>' + esc(data.headline) + '</p>';
         }
         
-        // Body - lead with advice
+        // Body - lead with advice (strip GPT's numbering)
         if (data.body) {
-            html += '<p>' + esc(data.body) + '</p>';
+            var bodyClean = data.body.replace(/^\d+\.\s*/gm, '').replace(/^\d+\)\s*/gm, '');
+            html += '<p>' + esc(bodyClean) + '</p>';
         }
         
         // Top 2-3 product picks - render as cards (name first, PN in parens)
@@ -1626,6 +1627,10 @@
                 } else {
                     // Fallback to text - show description first, then PN
                     var desc = pick.part_number;
+                    // Strip GPT's numbering (1., 2., etc.)
+                    if (pick.reason) {
+                        pick.reason = pick.reason.replace(/^\d+\.\s*/, '');
+                    }
                     if (pick.reason && pick.reason.includes('—')) {
                         var parts = pick.reason.split('—');
                         desc = parts[0].trim();
