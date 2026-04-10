@@ -1615,7 +1615,7 @@
         
         // Product picks as simple clickable links
         if (data.picks && data.picks.length > 0) {
-            html += '<p>I'd go with ';
+            html += '<p>I would go with ';
             data.picks.forEach(function(pick, i) {
                 if (i > 0) html += ' or ';
                 html += '<a class="card-link" onclick="sendMessage(\'lookup ' + esc(pick.part_number).replace(/'/g, "\\'") + '\')">' + esc(pick.part_number) + '</a>';
