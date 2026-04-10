@@ -3,11 +3,11 @@ Enpro Filtration Mastermind v3.0 PRODUCTION
 Using your deployed Azure AI Foundry models
 
 Model Mappings:
-- phi-4-classifier → Classification (cheap, fast)
-- gpt-4.1-mini → Fast/lightweight responses
-- o4-mini-reasoning → Complex reasoning (replaces o3-mini)
-- gpt-4.1 → Strong reasoning (replaces o3-mini-high)
-- gpt-5-mini → Product narrowing (replaces gpt-5.4-mini)
+- phi-4-classifier -> Classification (cheap, fast)
+- gpt-4.1-mini -> Fast/lightweight responses
+- o4-mini-reasoning -> Complex reasoning (replaces o3-mini)
+- gpt-4.1 -> Strong reasoning (replaces o3-mini-high)
+- gpt-5-mini -> Product narrowing (replaces gpt-5.4-mini)
 """
 
 import os
@@ -65,15 +65,15 @@ Classify the user query into EXACTLY ONE category:
 Respond with ONLY the category name. One or two words maximum.
 
 Examples:
-- "HC9600 price" → SIMPLE_LOOKUP
-- "brewery yeast filtration" → APPLICATION_HELP
-- "meeting with Acme Corp tomorrow" → PREGAME
-- "compare HC9600 vs CLR130" → COMPARE
-- "what's the difference between nominal and absolute" → GENERAL_CHAT
-- "aitch see ninety six oh oh" → VOICE_TRANSCRIPTION
-- "compare these" → FOLLOW_UP
-- "what about that one" → FOLLOW_UP
-- "tell me more about the second option" → FOLLOW_UP"""
+- "HC9600 price" -> SIMPLE_LOOKUP
+- "brewery yeast filtration" -> APPLICATION_HELP
+- "meeting with Acme Corp tomorrow" -> PREGAME
+- "compare HC9600 vs CLR130" -> COMPARE
+- "what's the difference between nominal and absolute" -> GENERAL_CHAT
+- "aitch see ninety six oh oh" -> VOICE_TRANSCRIPTION
+- "compare these" -> FOLLOW_UP
+- "what about that one" -> FOLLOW_UP
+- "tell me more about the second option" -> FOLLOW_UP"""
 
 O4_MINI_REASONING_PROMPT = """You are the Enpro Filtration Mastermind. A sales rep is texting you from their phone.
 
@@ -118,11 +118,13 @@ RESPONSE FORMAT (JSON only):
   "escalation_reason": null
 }
 
-SAFETY ESCALATION (Set escalation: true if):
-- Temperature > 400°F mentioned
-- Hydrogen or H2S service
-- Pressure > 150 PSI without context
-- User mentions "lethal", "steam 400", "sour gas"
+# Safety escalation triggers (handled in code, not in prompt)
+SAFETY_TRIGGERS = [
+    "temperature > 400",
+    "hydrogen", "h2s", 
+    "pressure > 150",
+    "lethal", "steam 400", "sour gas"
+]
 
 @dataclass
 class ClassificationResult:
@@ -133,16 +135,7 @@ class ClassificationResult:
 
 
 class EnproMastermindV3:
-    """
-    Production-ready unified handler with cost-optimized model routing.
-    
-    Model Routing Strategy:
-    - Phi-4 (phi-4-classifier): Classification ~$0.0001
-    - GPT-4.1-mini (gpt-4.1-mini): Simple lookups ~$0.002
-    - O4-mini (o4-mini-reasoning): Complex reasoning ~$0.015
-    - GPT-4.1 (gpt-4.1): Deep reasoning/briefings ~$0.02
-    - GPT-5-mini (gpt-5-mini): Product narrowing ~$0.005
-    """
+    """Production-ready unified handler with cost-optimized model routing."""
     
     def __init__(self, catalog_df: pd.DataFrame):
         self.catalog_df = catalog_df
@@ -180,24 +173,24 @@ class EnproMastermindV3:
         # STEP 2: Route based on classification
         # ═══════════════════════════════════════════════════════════════════
         
-        # Simple lookups → GPT-4.1-mini (cheap, fast)
+        # Simple lookups -> GPT-4.1-mini (cheap, fast)
         if classification.category == "SIMPLE_LOOKUP":
             return await self._handle_simple_lookup(message, history)
         
-        # General chat → GPT-4.1-mini
+        # General chat -> GPT-4.1-mini
         elif classification.category == "GENERAL_CHAT":
             return await self._handle_general_chat(message, history)
         
-        # Voice transcription → Handle phonetically
+        # Voice transcription -> Handle phonetically
         elif classification.category == "VOICE_TRANSCRIPTION":
             return await self._handle_voice_transcription(message, history)
         
-        # Follow-up / referencing previous context → Needs full context awareness
+        # Follow-up / referencing previous context -> Needs full context awareness
         elif classification.category == "FOLLOW_UP":
             # Force complex handling with history for context
             return await self._handle_follow_up(message, history)
         
-        # Complex queries → O4-mini or GPT-4.1
+        # Complex queries -> O4-mini or GPT-4.1
         elif classification.category == "PREGAME":
             return await self._handle_pregame(message, history)
         
@@ -269,7 +262,7 @@ class EnproMastermindV3:
     
     async def _handle_simple_lookup(self, message: str, history: List[Dict]) -> Dict:
         """
-        Simple part lookup → GPT-4.1-mini (fast, cheap).
+        Simple part lookup -> GPT-4.1-mini (fast, cheap).
         Cost: ~$0.002 vs O4-mini ~$0.015 = 87% savings
         """
         # Extract part number
@@ -309,7 +302,7 @@ class EnproMastermindV3:
     
     async def _handle_general_chat(self, message: str, history: List[Dict]) -> Dict:
         """
-        General questions → GPT-4.1-mini.
+        General questions -> GPT-4.1-mini.
         Cost: ~$0.002
         """
         response = self.client.chat.completions.create(
@@ -361,7 +354,7 @@ class EnproMastermindV3:
                 row = product.iloc[0]
                 return {
                     "response_type": "recommendation",
-                    "to_user": f"Heard '{message}' → {resolved_part}. {row['Description'][:60]}... Price: ${row.get('Price', 'N/A')}, Stock: {row.get('Total_Stock', 0)}.",
+                    "to_user": f"Heard '{message}' -> {resolved_part}. {row['Description'][:60]}... Price: ${row.get('Price', 'N/A')}, Stock: {row.get('Total_Stock', 0)}.",
                     "thinking_trace": ["Voice transcription", f"Resolved to {resolved_part}"],
                     "headline": f"{resolved_part} — {row['Final_Manufacturer']}",
                     "picks": [{
@@ -385,7 +378,7 @@ class EnproMastermindV3:
     
     async def _handle_pregame(self, message: str, history: List[Dict]) -> Dict:
         """
-        Meeting prep → GPT-4.1 (strong reasoning for strategic briefing).
+        Meeting prep -> GPT-4.1 (strong reasoning for strategic briefing).
         Cost: ~$0.02 (worth it for complex pregame)
         """
         history_text = self._format_history(history)
@@ -412,7 +405,7 @@ class EnproMastermindV3:
     async def _handle_complex_query(self, message: str, history: List[Dict], 
                                    classification: ClassificationResult) -> Dict:
         """
-        Complex queries → O4-mini with product search.
+        Complex queries -> O4-mini with product search.
         Cost: ~$0.015 + $0.005 for narrowing = ~$0.02 total
         """
         # Search products if needed
@@ -626,13 +619,13 @@ def init_mastermind(df: pd.DataFrame):
 
 
 def _extract_part_numbers(text: str) -> List[str]:
-    """Extract part numbers like HC9600, CLR130 from text."""
+    # Extract part numbers like HC9600, CLR130 from text.
     pattern = r'\b[A-Z]{2,4}\d{2,4}[A-Z0-9]*\b'
     return re.findall(pattern, text.upper())
 
 
 def _has_coreference(text: str) -> bool:
-    """Detect if user is referencing previous context (these, them, that one, etc.)"""
+    # Detect if user is referencing previous context (these, them, that one, etc.)
     coref_patterns = [
         r'\b(these|those|them|they|it|that one|this one|the (first|second|third) one)\b',
         r'\b(compare|vs|versus|difference between)\b',
