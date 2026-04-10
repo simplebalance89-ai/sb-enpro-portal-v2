@@ -19,15 +19,23 @@ _client: Optional[httpx.AsyncClient] = None
 def _get_base_url() -> str:
     """Build base URL from endpoint."""
     endpoint = settings.AZURE_OPENAI_ENDPOINT.rstrip("/")
+    # Support both old (cognitiveservices) and new (services.ai.azure.com) endpoints
+    if "services.ai.azure.com" in endpoint:
+        # New Azure AI Foundry endpoint format
+        return f"{endpoint}"
     return f"{endpoint}/openai/deployments"
 
 
 def _get_headers() -> dict:
     """Auth headers for Azure OpenAI."""
-    return {
-        "api-key": settings.AZURE_OPENAI_KEY,
-        "Content-Type": "application/json",
-    }
+    # Support both old (api-key) and new (Authorization Bearer) auth
+    headers = {"Content-Type": "application/json"}
+    if "services.ai.azure.com" in settings.AZURE_OPENAI_ENDPOINT:
+        # New endpoint uses Bearer token auth
+        headers["Authorization"] = f"Bearer {settings.AZURE_OPENAI_KEY}"
+    else:
+        headers["api-key"] = settings.AZURE_OPENAI_KEY
+    return headers
 
 
 async def get_client() -> httpx.AsyncClient:
@@ -68,15 +76,31 @@ async def chat_completion(
         httpx.HTTPStatusError: On non-2xx response.
     """
     client = await get_client()
-    url = f"{_get_base_url()}/{deployment}/chat/completions?api-version={settings.AZURE_OPENAI_API_VERSION}"
+    
+    # Support both old and new Azure OpenAI endpoint formats
+    endpoint = settings.AZURE_OPENAI_ENDPOINT.rstrip("/")
+    if "services.ai.azure.com" in endpoint and "/api/projects/" in endpoint:
+        # New Azure AI Foundry endpoint: /api/projects/{project}/openai/v1/chat/completions
+        url = f"{endpoint}/chat/completions"
+    else:
+        # Old endpoint: /openai/deployments/{deployment}/chat/completions
+        url = f"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={settings.AZURE_OPENAI_API_VERSION}"
 
+    # Support both old and new endpoint payload formats
+    endpoint = settings.AZURE_OPENAI_ENDPOINT.rstrip("/")
+    is_new_endpoint = "services.ai.azure.com" in endpoint and "/api/projects/" in endpoint
+    
     payload = {
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    
+    # New Azure AI Foundry endpoint requires model in payload
+    if is_new_endpoint:
+        payload["model"] = deployment
 
-    logger.debug(f"Azure OpenAI request: deployment={deployment}, messages={len(messages)}")
+    logger.debug(f"Azure OpenAI request: deployment={deployment}, messages={len(messages)}, new_endpoint={is_new_endpoint}")
 
     response = await client.post(url, headers=_get_headers(), json=payload)
     response.raise_for_status()
