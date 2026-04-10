@@ -1095,3 +1095,232 @@ Progressive filter strategy:
 ---
 
 
+
+### 5. Pharmaceutical Sterile Filtration
+
+**Application:** Sterile filtration for pharmaceutical manufacturing, biotechnology, and vaccine production. Requires absolute-rated filtration with integrity testing.
+
+**Critical Requirements:**
+1. **Absolute Rating:** 0.2 micron or 0.45 micron absolute (Beta 5000 minimum, 99.98% removal)
+2. **Integrity Testable:** Bubble point or diffusion testing required
+3. **USP Class VI:** All materials must pass USP Class VI biological reactivity testing
+4. **FDA 21 CFR:** Compliance for food and drug contact applications
+
+**Key Products:**
+1. **Pall Supor PES Membrane:** 0.2 micron absolute, polyethersulfone membrane, high flow rates, low protein binding, integrity testable
+2. **PTFE Membrane:** 0.2 micron absolute, hydrophobic, for venting and gas filtration
+3. **PES Cartridges:** Pleated configuration for high surface area, validated for sterile filtration
+
+**Filtration Stages:**
+| Stage | Micron | Purpose | Products |
+|-------|--------|---------|----------|
+| Prefiltration | 1-5 micron | Remove bulk particulates, protect final filter | Pleated depth, nominal rated |
+| Final Filtration | 0.45 micron | Reduce bioburden, pre-sterile | PES absolute |
+| Sterile Filtration | 0.2 micron | Sterilizing grade, bacterial retention | PES or PTFE absolute, integrity tested |
+
+**Endotoxin Removal:** PES membranes with charged media can reduce endotoxins. Must validate per application.
+
+---
+
+### 6. Paint Spray Booth Filtration
+
+**Application:** Overspray capture in automotive and industrial paint spray booths. Requires high holding capacity for paint particles and uniform airflow.
+
+**Critical Requirements:**
+1. **High Dirt Holding:** Paint particles load filters quickly; need high capacity media
+2. **Uniform Airflow:** Even distribution critical for paint quality
+3. **Cost-Effective:** Frequent changeouts required; balance performance with cost
+
+**Key Products:**
+1. **Paint Arrestor Pads:** Fiberglass or polyester media, 10-25 micron capture, high holding capacity for wet paint
+2. **Pocket Filters:** Extended surface bag filters, MERV 11-14, for secondary filtration
+3. **Pre-filtration:** Coarse filters (25-50 micron) to extend life of final filters
+
+**Stages:**
+| Stage | Type | Purpose |
+|-------|------|---------|
+| Primary | Paint arrestor pads | Capture overspray, protect downstream |
+| Secondary | Pocket filters | Fine particulate, uniform airflow |
+
+**Watch For:** Differential pressure rise indicates filter loading; change before paint quality degrades.
+
+---
+
+### 7. Data Center HVAC Filtration
+
+**Application:** Air filtration for data center cooling systems. Protects servers from dust while maintaining energy efficiency.
+
+**Critical Requirements:**
+1. **ASHRAE Standards:** MERV 11 minimum, MERV 13+ recommended for data centers
+2. **Low Pressure Drop:** Critical for energy efficiency; high airflow resistance increases cooling costs
+3. **High Dust Holding:** Extended service intervals reduce maintenance
+
+**Key Products:**
+1. **Pleated Panel Filters:** MERV 11-13, synthetic media, low pressure drop
+2. **Extended Surface Filters:** 4-inch or 6-inch deep pleats, higher capacity, longer life
+3. **Pre-filters:** MERV 8 pleated, protect final filters, extend changeout intervals
+
+**Specifications:**
+| Parameter | Recommendation |
+|-----------|---------------|
+| Primary Filter | MERV 8 pleated, 2-inch |
+| Secondary Filter | MERV 13+ pleated, 4-inch or 6-inch |
+| Changeout DP | 1.0-1.5 inches w.c. |
+
+---
+
+### 8. Semiconductor & Electronics
+
+**Application:** Ultra-high purity filtration for semiconductor manufacturing, including DI water, process chemicals, and cleanroom air.
+
+**Critical Requirements:**
+1. **Particle Control:** Sub-micron filtration required (0.03-0.1 micron typical)
+2. **Extractables:** Minimal ionic and organic extractables from filter media
+3. **Integrity Testing:** 100% testing required for critical filters
+
+**Key Products:**
+1. **PES Membrane:** 0.03-0.1 micron absolute, ultra-low extractables
+2. **PTFE Membrane:** 0.1 micron, chemically resistant for aggressive chemicals
+3. **Nylon Membrane:** 0.1 micron, for solvent filtration
+4. **DI Water Filters:** Ion-pure rated, sub-micron absolute
+
+**Applications:**
+- DI water final polish
+- Photoresist filtration
+- CMP slurry filtration
+- Solvent purification
+
+---
+
+### 9. Solar & Renewable Energy
+
+**Application:** Filtration for solar panel manufacturing, wind turbine hydraulic systems, and renewable energy processes.
+
+**Solar Panel Manufacturing:**
+- **Silicon Wafer Cutting:** Coolant filtration to remove silicon particles
+- **DI Water:** High purity water for cleaning and processing
+- **Chemical Processing:** Acid and solvent filtration for etching
+
+**Wind Turbine Hydraulics:**
+- **Gearbox Lube Filtration:** 10-25 micron absolute for wind turbine gearboxes
+- **Hydraulic Control Systems:** 10 micron for pitch and yaw controls
+
+**Key Products:**
+1. **Ultipleat HF:** High flow hydraulic filters
+2. **PES Membrane:** DI water and chemical filtration
+3. **Bag Filters:** High capacity for coolant applications
+
+---
+
+## 11. INDUSTRIAL FILTRATION
+
+### 1. Hydraulic Oil Filtration
+
+**Application:** Hydraulic system protection in manufacturing, mobile equipment, and industrial machinery.
+
+**Critical Requirements:**
+1. **Beta Rating:** Beta 200-1000 (99.5-99.9%) minimum for critical hydraulics
+2. **Collapse Rating:** Must exceed system pressure spikes
+3. **Flow Rate:** Sized for system GPM with safety margin
+
+**Key Products:**
+1. **Pall Ultipleat HF:** High efficiency hydraulic filters, Beta 1000+ available
+2. **Coralon Elements:** Glass fiber media, high dirt holding
+3. **Pressure Filters:** In-line filters for system protection
+4. **Return Line Filters:** Lower pressure, high flow capacity
+
+**Recommended Micron Ratings:**
+| Application | Micron Rating | Beta Ratio |
+|-------------|--------------|------------|
+| Servo valves | 3-5 micron absolute | Beta >= 1000 |
+| Proportional valves | 5-10 micron absolute | Beta >= 200 |
+| General hydraulic | 10-25 micron | Beta >= 200 |
+| Return line | 10-25 micron | Beta >= 75 |
+
+---
+
+### 2. Mining & Heavy Equipment
+
+**Application:** Extreme duty filtration for mining trucks, excavators, and processing equipment.
+
+**Critical Requirements:**
+1. **High Capacity:** Large contaminant loads typical
+2. **Durability:** Withstand vibration, shock, temperature extremes
+3. **Serviceability:** Easy changeout in field conditions
+
+**Key Products:**
+1. **High Capacity Hydraulic Filters:** Ultipleat style, extended element life
+2. **Dust Collection:** Baghouse filters for crushing and conveying
+3. **Process Water:** High solids filtration for tailings and recycle
+
+---
+
+### 3. Pulp & Paper
+
+**Application:** Process filtration for pulp manufacturing and paper production.
+
+**Key Applications:**
+1. **White Water Filtration:** Recover fibers, clarify process water
+2. **Shower Water:** Nozzle protection with fine filtration
+3. **Hydraulic:** Paper machine hydraulic systems
+4. **Steam:** Clean steam for drying sections
+
+**Key Products:**
+1. **Bag Filters:** High flow white water applications
+2. **Self-Cleaning Strainers:** Continuous operation, minimal maintenance
+3. **Pleated Cartridges:** Shower water protection
+
+---
+
+### 4. Steel & Metal Processing
+
+**Application:** Filtration for steel mills, metal finishing, and machining operations.
+
+**Key Applications:**
+1. **Mill Scale Filtration:** Remove iron oxide from cooling water
+2. **Coolant Filtration:** Machine tool coolant cleaning
+3. **Oil Recovery:** Rolling mill lubricant filtration
+
+**Key Products:**
+1. **Magnetic Separators:** Remove ferrous particles from coolants
+2. **Bag Filters:** High capacity for mill scale
+3. **Coalescers:** Oil-water separation
+4. **Depth Filters:** Coolant polishing
+
+---
+
+### 5. Automotive Manufacturing
+
+**Application:** Filtration for vehicle assembly plants and component manufacturing.
+
+**Key Applications:**
+1. **Paint Filtration:** Clearcoat and primer filtration
+2. **Coolant:** Machining and grinding coolants
+3. **Stamping Lubricants:** Protect tooling and parts
+4. **Plant Air:** Compressed air filtration
+
+**Key Products:**
+1. **PES Membrane:** Paint filtration, 0.45-1 micron
+2. **Bag Filters:** Coolant and lubricant filtration
+3. **Compressed Air Filters:** Desiccant and particulate removal
+
+---
+
+### 6. Aerospace & Defense
+
+**Application:** High reliability filtration for aircraft, military vehicles, and defense applications.
+
+**Critical Requirements:**
+1. **Reliability:** Failure is not an option; redundant filtration
+2. **Specifications:** Meet MIL-SPEC and aerospace standards
+3. **Traceability:** Full documentation and certification
+
+**Key Applications:**
+1. **Fuel Filtration:** Jet fuel, diesel filtration to strict specs
+2. **Hydraulic:** Flight control and landing gear hydraulics
+3. **Air:** Cabin and engine intake air
+
+**Key Products:**
+1. **Ultipleat HF:** Aerospace-qualified hydraulic filters
+2. **Coalescers:** Fuel-water separation
+3. **Absolute Rated:** 3-5 micron for critical systems
