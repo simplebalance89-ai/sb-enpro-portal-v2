@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import pandas as pd
-from azure.openai import AzureOpenAI
+from openai import AzureOpenAI
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
