@@ -136,7 +136,7 @@ class ClassificationResult:
 
 
 class EnproMastermindV3:
-    """Production-ready unified handler with cost-optimized model routing."""
+    # Production-ready unified handler with cost-optimized model routing.
     
     def __init__(self, catalog_df: pd.DataFrame):
         self.catalog_df = catalog_df
