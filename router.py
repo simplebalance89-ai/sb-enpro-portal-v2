@@ -706,6 +706,51 @@ async def handle_message(
     Returns:
         dict with 'response' (str), 'intent' (str), 'cost' (str), 'products' (list, optional).
     """
+    # --- Context Resolution (pronouns, validation questions) ---
+    context_analysis = None
+    try:
+        import os
+        if os.environ.get("COSMOS_ENDPOINT"):
+            import conversation_memory_cosmos as cosmos_mem
+            from context_resolver import ContextResolver
+            resolver = ContextResolver(cosmos_mem)
+            context_analysis = await resolver.resolve_message(message, session_id)
+            if context_analysis.get("has_coreference"):
+                # Inject resolved parts into message for the model
+                message = context_analysis["resolved_message"]
+                logger.info(f"Context resolved: {context_analysis['referenced_parts']}")
+                # Also inject into history so coreference upgrade works
+                if not history:
+                    history = await cosmos_mem.get_recent_history(session_id, max_messages=10)
+
+            # Handle validation questions ("does this work for medical?")
+            if context_analysis.get("is_validation_question") and context_analysis.get("referenced_parts"):
+                app = context_analysis.get("referenced_application", "general")
+                part_pn = context_analysis["referenced_parts"][0]
+                validation = await resolver.validate_application_fit(part_pn, app, df)
+                if validation["fits"] is False:
+                    alts_text = ""
+                    if validation.get("alternatives"):
+                        alt_pns = [a.get("Part_Number", "?") for a in validation["alternatives"][:3]]
+                        alts_text = f" Try these instead: {', '.join(alt_pns)}"
+                    return {
+                        "response": f"No, {part_pn} won't work for {app}. {validation['reason']}.{alts_text}",
+                        "intent": "validate_application",
+                        "cost": "$0",
+                        "products": validation.get("alternatives", []),
+                        "structured": True,
+                        "headline": f"{part_pn} is not suitable for {app}",
+                    }
+                elif validation["fits"] is True:
+                    return {
+                        "response": f"Yes, {part_pn} works for {app}. {validation['reason']}.",
+                        "intent": "validate_application",
+                        "cost": "$0",
+                        "products": [validation["part"]] if validation["part"] else [],
+                    }
+    except Exception as ctx_err:
+        logger.error(f"Context resolution failed (non-fatal): {ctx_err}")
+
     # --- Pre-checks (governance) ---
     pre_check = run_pre_checks(message)
     if pre_check and pre_check.get("intercepted"):
