@@ -3209,9 +3209,7 @@
         }).then(function (data) {
             window.newChat();
             if (data && data.deleted) {
-                appendMessage('bot', 'Cleared ' + data.deleted + ' messages from your 7-day memory. Starting fresh.');
-            } else {
-                appendMessage('bot', 'Started a new conversation.');
+                appendMessage('bot', 'Cleared ' + data.deleted + ' messages. Fresh start.');
             }
         });
     };

@@ -217,7 +217,7 @@ if settings.USE_UNIFIED_HANDLER and mastermind_router:
 async def no_cache_html(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path == "/" or path.endswith(".html"):
+    if path == "/" or path.endswith((".html", ".js", ".css")):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
