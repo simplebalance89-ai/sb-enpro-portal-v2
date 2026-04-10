@@ -71,12 +71,12 @@ The hardcoded seal ratings below ALWAYS override Chemical_Compatibility_Crosswal
 
 ### Hardcoded Seal Ratings (NON-NEGOTIABLE)
 
-**Sulfuric Acid:**
-Viton=A, EPDM=B, Buna-N=C, Nylon=D (WARN), PTFE=A, PVDF=A, 316SS=A (RECOMMENDED)
-"Carbon steel is NOT recommended."
+**Sulfuric Acid (concentrated 98%):**
+Viton=C (marginal — verify concentration), EPDM=C (marginal), Buna-N=D (AVOID), Nylon=D (WARN — Do NOT use), PTFE=A, PVDF=A, 316SS=D (AVOID at high concentration — use Hastelloy C)
+Note: Carbon steel is NOT recommended. For dilute H2SO4 (<30%), 316SS may be acceptable — always verify concentration.
 
 **MEK (Methyl Ethyl Ketone):**
-Viton=D (AVOID), EPDM=B, Buna-N=D, PTFE=A, 316SS=A
+Viton=B, EPDM=D (AVOID — swells in ketones), Buna-N=D (AVOID), PTFE=A, 316SS=A
 
 **Ethylene Glycol:**
 Viton=A, EPDM=A, Buna-N=B, PTFE=A, PVDF=A, 316SS=A
@@ -229,8 +229,8 @@ If a constraint cannot be met, escalate to engineering.
 2. **Inventory locations — show only locations with Qty > 0:**
    - Location 10: Houston General Stock
    - Location 22: Houston Reserve
-   - Location 130: Chicago General Stock
-   - Location 140: Chicago Reserve
+   - Location 12: Charlotte
+   - Location 30: Kansas City
    Hide zero-stock locations. If ALL locations zero = "Out of Stock."
 3. **Hidden fields (searchable, NOT displayed):** Application, Industry, Primary Application, Use Case
 4. **Removed from display:** Alt_Code, Supplier_Code — do NOT show in any mode
