@@ -790,7 +790,6 @@
                 var data = await res.json();
                 if (data.found && data.product) {
                     appendCard(renderProductCard(data.product), false);
-                    appendFollowUps(data.product.Part_Number || '');
                 }
             } catch (err) {
                 console.error('Product fetch error:', err);
@@ -989,7 +988,6 @@
             appendCard(renderTableCard(data.table));
         } else if (data.product) {
             appendCard(renderProductCard(data.product));
-            appendFollowUps(data.product.part_number || data.product.Part_Number || '');
         } else if (data.options && Array.isArray(data.options)) {
             if (data.text) appendMessage('bot', formatMarkdown(data.text));
             appendNumberedOptions(data.options);
@@ -1055,7 +1053,6 @@
         if (products.length === 1) {
             // Single result — full product card
             appendCard(renderProductCard(products[0]), false);
-            appendFollowUps(products[0].Part_Number || products[0].part_number || '');
         } else if (products.length > 1) {
             // Multiple results — consolidated card with expandable rows
             appendCard(renderConsolidatedCard(products), true);

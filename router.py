@@ -1587,18 +1587,7 @@ def _format_product_response(product: dict) -> str:
         lines.append(f"{n}. **Stock:** Out of stock — the office or check in with the office")
     n += 1
 
-    # Working numbered follow-ups only
-    mfg = product.get("Final_Manufacturer", "")
-    micron = product.get("Micron", "")
-    lines.append("")
-    if mfg:
-        lines.append(f"{n}. Show more {mfg} products")
-    else:
-        lines.append(f"{n}. Compare to similar products")
-    n += 1
-    lines.append(f"{n}. Compare this part number")
-    n += 1
-    lines.append(f"{n}. Pregame a meeting with this product")
+    # Footer only - no follow-up options
     lines.append(f"\nFor additional information: Enpro Inc — the office | check in with the office")
     return "\n".join(lines)
 
