@@ -560,12 +560,17 @@ async def chat(request: Request, req: ChatRequest):
         update_from_message(req.session_id, req.message, state.df)
         result = await _route_chat(req, history, user_rep_id)
     except Exception as e:
-        logger.error(f"Chat error: {e}", exc_info=True)
+        # Full traceback to Azure Container Apps logs, and the exception type
+        # + message in the user-visible error field so the UI stops hiding it
+        # behind the opaque "Something went wrong". Temporary debug surface
+        # until the Turn 2 agent failure is pinned down.
+        logger.error(f"Chat error: {type(e).__name__}: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
-                "error": "Something went wrong. Try again or contact Enpro directly.",
+                "error": f"Server error ({type(e).__name__}): {str(e)[:400]}",
                 "detail": str(e),
+                "exception_type": type(e).__name__,
             },
         )
 
@@ -628,8 +633,12 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
         update_from_message(req.session_id, req.message, state.df)
         result = await _route_chat(req, history, user_rep_id)
     except Exception as e:
-        logger.error(f"Stream chat error: {e}", exc_info=True)
-        yield _sse_event("error", {"error": "Something went wrong. Try again or contact Enpro directly.", "detail": str(e)})
+        logger.error(f"Stream chat error: {type(e).__name__}: {e}", exc_info=True)
+        yield _sse_event("error", {
+            "error": f"Server error ({type(e).__name__}): {str(e)[:400]}",
+            "detail": str(e),
+            "exception_type": type(e).__name__,
+        })
         return
 
     # Persist the turn (same Phase 3 logic as /api/chat)

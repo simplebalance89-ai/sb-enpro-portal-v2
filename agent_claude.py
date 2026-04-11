@@ -271,8 +271,16 @@ Your job for follow-up questions in this session:
             try:
                 response = await self._call_claude(messages, system_prompt=augmented_system)
             except Exception as e:
-                logger.error(f"Claude API call failed: {e}")
-                error_msg = "Something went wrong. Try again or contact Enpro directly."
+                # Log the full traceback so Azure Container Apps logs have it,
+                # and surface the exception type + message in the response body
+                # so the browser/UI shows what actually broke instead of the
+                # opaque "Something went wrong". Temporary debug aid — remove
+                # the str(e) leak once the Turn 2 agent failure is pinned down.
+                logger.error(f"Claude API call failed: {type(e).__name__}: {e}", exc_info=True)
+                error_msg = (
+                    f"Claude agent error ({type(e).__name__}): {str(e)[:300]}. "
+                    "Try again or contact Enpro directly."
+                )
                 thread.append({"role": "assistant", "content": error_msg})
                 return {"response": error_msg, "intent": "error", "cost": "~$0.05"}
 

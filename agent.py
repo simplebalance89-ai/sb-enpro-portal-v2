@@ -316,8 +316,16 @@ For follow-up questions in this session:
                     max_tokens=4096,  # Reasoning models need headroom for <think> blocks
                 )
             except Exception as e:
-                logger.error(f"Agent API call failed: {e}")
-                error_msg = "Something went wrong. Try again or contact Enpro directly."
+                # Log the full traceback so Azure Container Apps logs have it,
+                # and surface the exception type + message in the response body
+                # so the browser/UI shows what actually broke instead of the
+                # opaque "Something went wrong". Temporary debug aid — remove
+                # the str(e) leak once the Turn 2 agent failure is pinned down.
+                logger.error(f"Agent API call failed: {type(e).__name__}: {e}", exc_info=True)
+                error_msg = (
+                    f"Agent error ({type(e).__name__}): {str(e)[:300]}. "
+                    "Try again or contact Enpro directly."
+                )
                 thread.append({"role": "assistant", "content": error_msg})
                 return {"response": error_msg, "intent": "error", "cost": "~$0.02"}
 
