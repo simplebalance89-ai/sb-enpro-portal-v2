@@ -37,7 +37,12 @@ VISIBLE_FIELDS = [
     "Max_PSI",
     "Flow_Rate",
     "Efficiency",
-    "Final_Manufacturer",
+    "Manufacturer",          # NEW — derived from Product_Group prefix
+    "Final_Manufacturer",    # backwards-compat alias of Manufacturer
+    "Supplier",              # NEW — from inventory_live.Supplier_Name (who we buy from)
+    "Application",           # NEW — 9 clean buckets (was HIDDEN)
+    "Industry",              # NEW — industry vertical (was HIDDEN)
+    "Activity_Flag",         # NEW — ACTIVE / DORMANT_1-2YR / DORMANT_5-10YR etc.
     "Last_Sold_Date",
 ]
 
@@ -45,11 +50,25 @@ VISIBLE_FIELDS = [
 HIDDEN_FIELDS = [
     "Alt_Code",
     "Supplier_Code",
-    "Application",
-    "Industry",
     "P21_Item_ID",
     "Product_Group",
 ]
+
+# Activity_Flag priority for sorting (lower number = higher priority)
+ACTIVITY_PRIORITY = {
+    "ACTIVE": 0,
+    "DORMANT_1-2YR": 1,
+    "DORMANT_2-3YR": 2,
+    "DORMANT_3-5YR": 3,
+    "DORMANT_5-10YR": 4,
+    "DORMANT_10YR+": 5,
+    "": 6,  # missing flag goes last
+}
+
+
+def _activity_priority(flag) -> int:
+    """Return sort priority for an Activity_Flag value. Lower = better."""
+    return ACTIVITY_PRIORITY.get(str(flag or "").strip().upper(), 6)
 
 # Stock location mapping
 STOCK_LOCATIONS = {
@@ -124,6 +143,18 @@ def search_products(
         # Fall back to all results if stock filter empties everything
         if not stocked.empty:
             matches = stocked
+
+    # Priority sort: ACTIVE + in stock first, dormant tiers after
+    # (Activity_Flag priority asc, Total_Stock desc)
+    if not matches.empty and "Activity_Flag" in matches.columns:
+        matches = matches.copy()
+        matches["_activity_rank"] = matches["Activity_Flag"].apply(_activity_priority)
+        matches["_stock_rank"] = (matches.get("Total_Stock", 0) > 0).astype(int)
+        matches = matches.sort_values(
+            by=["_activity_rank", "_stock_rank", "Total_Stock"],
+            ascending=[True, False, False],
+        )
+        matches = matches.drop(columns=["_activity_rank", "_stock_rank"])
 
     total_found = len(matches)
     limited = matches.head(max_results)
@@ -323,24 +354,41 @@ def _search_cascade(df: pd.DataFrame, raw_query: str, norm_query: str) -> pd.Dat
 # ---------------------------------------------------------------------------
 # Product formatting
 # ---------------------------------------------------------------------------
+def _is_empty(val) -> bool:
+    """Return True if a value is empty/null/N-A/zero — should be omitted from product dict."""
+    if val is None:
+        return True
+    if pd.isna(val):
+        return True
+    sval = str(val).strip()
+    if not sval:
+        return True
+    if sval.lower() in ("nan", "n/a", "null", "none"):
+        return True
+    if sval in ("0", "0.0"):
+        return True
+    return False
+
+
 def format_product(row: pd.Series) -> dict:
     """
     Format a product row into a clean dict with visible fields only.
+    Strips empty/null/zero fields so the LLM can't hallucinate missing data.
     Applies price rules and stock location formatting.
     """
     product = {}
 
-    # Visible fields
+    # Visible fields — omit anything empty/null/zero
     for field in VISIBLE_FIELDS:
         val = row.get(field, "")
-        if pd.isna(val) or val == "" or val == 0:
+        if _is_empty(val):
             continue
         product[field] = val
 
     # Handle dual column names — try V25 first, fall back to V5
     if "Final_Manufacturer" not in product:
         mfr = row.get("Manufacturer", "")
-        if not pd.isna(mfr) and mfr != "" and mfr != 0:
+        if not _is_empty(mfr):
             product["Final_Manufacturer"] = mfr
 
     # Price logic: keep both raw prices and expose a primary display price.
