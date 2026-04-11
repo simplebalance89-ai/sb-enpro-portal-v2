@@ -523,16 +523,22 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
     # Run the handler — this is the blocking GPT call
     try:
         update_from_message(req.session_id, req.message, state.df)
-        result = await handle_message(
-            message=req.message,
-            session_id=req.session_id,
-            mode=req.mode,
-            df=state.df,
-            chemicals_df=state.chemicals_df,
-            history=history or None,
-            user_rep_id=user_rep_id,
-        )
-        result["quote_state"] = snapshot_quote_state(req.session_id)
+
+        # Agent mode: same routing as /api/chat
+        if _agent is not None:
+            result = await _agent.chat(message=req.message, session_id=req.session_id)
+            result["quote_state"] = snapshot_quote_state(req.session_id)
+        else:
+            result = await handle_message(
+                message=req.message,
+                session_id=req.session_id,
+                mode=req.mode,
+                df=state.df,
+                chemicals_df=state.chemicals_df,
+                history=history or None,
+                user_rep_id=user_rep_id,
+            )
+            result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Stream chat error: {e}", exc_info=True)
         yield _sse_event("error", {"error": "Something went wrong. Try again or contact Enpro directly.", "detail": str(e)})
