@@ -112,11 +112,18 @@ class EnproClaudeAgent:
         logger.info(f"Tool call: {name}({json.dumps(arguments, default=str)[:200]})")
 
         if name == "search_catalog":
+            # query is OPTIONAL per tool schema (required: []). The LLM is
+            # told to prefer structured filters (application, manufacturer)
+            # over free text — so filter-only calls are correct and must
+            # not crash. Previously this indexed arguments["query"] and
+            # hit KeyError on every filter-only call.
             return tool_search_catalog(
                 self.df,
-                query=arguments["query"],
+                query=arguments.get("query", ""),
                 in_stock_only=arguments.get("in_stock_only", True),
                 max_results=arguments.get("max_results", 5),
+                application=arguments.get("application"),
+                manufacturer=arguments.get("manufacturer"),
             )
         elif name == "lookup_part":
             return tool_lookup_part(self.df, arguments["part_number"])
