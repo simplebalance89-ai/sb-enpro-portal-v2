@@ -220,11 +220,19 @@ class EnproAgent:
                 return {"response": error_msg, "intent": "error", "cost": "~$0.02"}
 
             choice = response.choices[0]
+            logger.info(f"Agent response: finish_reason={choice.finish_reason}, has_tool_calls={bool(choice.message.tool_calls)}")
 
             # If the model wants to call tools
-            if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
-                # Add assistant's tool call message
-                messages.append(choice.message.model_dump())
+            if choice.message.tool_calls:
+                # Add assistant's tool call message as dict
+                assistant_msg = {"role": "assistant", "content": choice.message.content or None, "tool_calls": []}
+                for tc in choice.message.tool_calls:
+                    assistant_msg["tool_calls"].append({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    })
+                messages.append(assistant_msg)
 
                 # Execute each tool call
                 for tool_call in choice.message.tool_calls:
