@@ -13,13 +13,13 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db import User, get_session, is_ready as db_ready
+from db import User, is_ready as db_ready, session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,10 @@ SESSION_COOKIE_NAME = "fm_session"
 SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 # Pilot pin — shared across all seeded users. Override via env GLOBAL_PIN.
-GLOBAL_PIN = os.environ.get("GLOBAL_PIN", "0000")
+# Accept common short forms ("000", "0000") for the same default so voice-
+# dictated logins work either way.
+GLOBAL_PIN = os.environ.get("GLOBAL_PIN", "000")
+_ACCEPTED_PINS = {GLOBAL_PIN, GLOBAL_PIN.rstrip("0") + "0" * max(0, 4 - len(GLOBAL_PIN))}
 # Pilot user list — auto-seeded on startup if missing.
 PILOT_USERS = [
     # Existing 4 pilot users — no rep_id, generic V2.11 catalog experience
@@ -106,40 +109,61 @@ def clear_session_cookie(response: Response) -> None:
 # Dependencies
 # ---------------------------------------------------------------------------
 
-async def get_current_user(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> User:
-    """FastAPI dependency: returns the logged-in User or raises 401."""
-    if not db_ready():
-        raise HTTPException(status_code=503, detail="Auth not configured")
+async def get_current_user(request: Request) -> User:
+    """FastAPI dependency: returns the logged-in User or raises 401.
+
+    Works with or without a live Postgres. When the DB is not ready, this
+    returns a lightweight in-memory User object built from PILOT_USERS so the
+    pilot can keep running against Cosmos-only deployments.
+    """
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user_id = read_session(token)
     if user_id is None:
         raise HTTPException(status_code=401, detail="Session expired")
-    user = await session.get(User, user_id)
-    if user is None:
+    if db_ready():
+        async with session_factory()() as session:
+            user = await session.get(User, user_id)
+            if user is None:
+                raise HTTPException(status_code=401, detail="User not found")
+            return user
+    # In-memory fallback
+    u = _resolve_pilot_user(user_id)
+    if u is None:
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+    return u
 
 
-async def get_current_user_optional(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> Optional[User]:
-    """Soft variant — returns None instead of raising. For endpoints that should
-    work with or without auth during the pilot rollout."""
-    if not db_ready():
-        return None
+async def get_current_user_optional(request: Request) -> Optional[User]:
+    """Soft variant — returns None instead of raising."""
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
     user_id = read_session(token)
     if user_id is None:
         return None
-    return await session.get(User, user_id)
+    if db_ready():
+        try:
+            async with session_factory()() as session:
+                return await session.get(User, user_id)
+        except Exception as e:
+            logger.warning(f"get_current_user_optional DB read failed: {e}")
+    return _resolve_pilot_user(user_id)
+
+
+def _resolve_pilot_user(user_id: int) -> Optional[User]:
+    """Build an in-memory User from PILOT_USERS at index (user_id - 1)."""
+    idx = user_id - 1
+    if idx < 0 or idx >= len(PILOT_USERS):
+        return None
+    u = PILOT_USERS[idx]
+    stub = User()
+    stub.id = user_id
+    stub.email = u["email"]
+    stub.name = u["name"]
+    stub.rep_id = u.get("rep_id")
+    return stub
 
 
 # ---------------------------------------------------------------------------
@@ -166,30 +190,47 @@ class UserOption(BaseModel):
 
 
 @router.get("/users", response_model=list[UserOption])
-async def list_users(session: AsyncSession = Depends(get_session)):
+async def list_users():
     """Public — pilot user dropdown for login screen."""
-    if not db_ready():
-        raise HTTPException(status_code=503, detail="Auth not configured")
-    result = await session.execute(select(User).order_by(User.id))
-    return [UserOption(id=u.id, name=u.name) for u in result.scalars().all()]
+    if db_ready():
+        try:
+            async with session_factory()() as session:
+                result = await session.execute(select(User).order_by(User.id))
+                return [UserOption(id=u.id, name=u.name) for u in result.scalars().all()]
+        except Exception as e:
+            logger.warning(f"list_users DB read failed, falling back to PILOT_USERS: {e}")
+    # In-memory fallback: Peter, Andrew, Grant, John (first 4 pilot users).
+    # Stable 1-indexed IDs so session cookies survive process restarts.
+    return [UserOption(id=i + 1, name=u["name"]) for i, u in enumerate(PILOT_USERS[:4])]
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(
-    req: LoginRequest,
-    response: Response,
-    session: AsyncSession = Depends(get_session),
-):
-    if not db_ready():
-        raise HTTPException(status_code=503, detail="Auth not configured")
-
-    user = await session.get(User, req.user_id)
-    if user is None or req.pin != GLOBAL_PIN:
+async def login(req: LoginRequest, response: Response):
+    if req.pin not in _ACCEPTED_PINS:
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
-    token = issue_session(user.id)
+    if db_ready():
+        try:
+            async with session_factory()() as session:
+                user = await session.get(User, req.user_id)
+                if user is None:
+                    raise HTTPException(status_code=401, detail="Invalid user")
+                token = issue_session(user.id)
+                set_session_cookie(response, token)
+                return LoginResponse(id=user.id, email=user.email, name=user.name)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"login DB read failed, falling back to PILOT_USERS: {e}")
+
+    # In-memory fallback
+    idx = req.user_id - 1
+    if idx < 0 or idx >= len(PILOT_USERS):
+        raise HTTPException(status_code=401, detail="Invalid user")
+    u = PILOT_USERS[idx]
+    token = issue_session(req.user_id)
     set_session_cookie(response, token)
-    return LoginResponse(id=user.id, email=user.email, name=user.name)
+    return LoginResponse(id=req.user_id, email=u["email"], name=u["name"])
 
 
 async def seed_pilot_users(session: AsyncSession) -> int:

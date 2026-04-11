@@ -342,28 +342,33 @@ async def _chat_auth_and_history(request: Request, session_id: str = "") -> tupl
 
     Falls back to Cosmos DB for history when Postgres is unavailable.
     """
-    # Try Postgres first (auth + history)
-    if db_ready():
+    # Resolve user from session cookie first. This now works regardless of
+    # Postgres state — auth.get_current_user_optional falls back to the
+    # in-memory PILOT_USERS list when the DB is not wired up, so PIN login
+    # keeps working on Cosmos-only deployments.
+    user = await auth.get_current_user_optional(request)
+    user_id = user.id if user else None
+    user_rep_id = user.rep_id if user else None
+
+    history: list = []
+
+    # Try Postgres for history if available
+    if db_ready() and user_id is not None:
         try:
             async with session_factory()() as session:
-                user = await auth.get_current_user_optional(request, session)
-                if user is None:
-                    return None, None, []
-                history = await conversation_memory.get_recent_history(session, user.id)
-                return user.id, user.rep_id, history
+                history = await conversation_memory.get_recent_history(session, user_id)
         except (OperationalError, DBAPIError, ConnectionError) as e:
-            logger.error(f"DB connection error during auth/history fetch: {e}", exc_info=True)
+            logger.error(f"DB history fetch failed: {e}", exc_info=True)
 
-    # Fallback: Cosmos DB for history (no auth, session-based)
-    if session_id and os.environ.get("COSMOS_ENDPOINT"):
+    # Fallback: Cosmos DB for history (session-based, works for anon users too)
+    if not history and session_id and os.environ.get("COSMOS_ENDPOINT"):
         try:
             import conversation_memory_cosmos as cosmos_mem
             history = await cosmos_mem.get_recent_history(session_id, max_messages=10)
-            return None, None, history
         except Exception as e:
             logger.error(f"Cosmos history fetch failed: {e}")
 
-    return None, None, []
+    return user_id, user_rep_id, history
 
 
 async def _persist_turn(
@@ -550,7 +555,9 @@ async def chat(request: Request, req: ChatRequest):
     # /api/chat REQUIRES auth when DB is configured. Voice + chemical
     # endpoints stay open for anonymous callers (the soft helper above
     # returns None for them); /api/chat does not.
-    if db_ready() and user_id is None:
+    # Auth gate — PIN login is now DB-optional (in-memory PILOT_USERS fallback
+    # in auth.py), so require a valid session regardless of Postgres state.
+    if user_id is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
@@ -617,7 +624,8 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
 
     # Auth + history fetch (same soft helper as /api/chat)
     user_id, user_rep_id, history = await _chat_auth_and_history(request, session_id=req.session_id)
-    if db_ready() and user_id is None:
+    # Auth gate (stream) — same PIN login requirement as /api/chat.
+    if user_id is None:
         yield _sse_event("error", {"error": "Not authenticated", "status": 401})
         return
 
@@ -764,7 +772,7 @@ async def chat_reset(request: Request):
             content={"error": "Auth/memory not configured"},
         )
     async with session_factory()() as session:
-        user = await auth.get_current_user(request, session)
+        user = await auth.get_current_user(request)
         deleted = await conversation_memory.clear_user_history(session, user.id)
     return {"ok": True, "deleted": deleted}
 

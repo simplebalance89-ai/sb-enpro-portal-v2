@@ -643,9 +643,8 @@
 
             case 'other':
                 if (data.products && data.products.length > 0) {
-                    appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
-                    // Use the batched grid renderer so multi-product responses
-                    // land as a 2-up grid instead of one card per row.
+                    // 2-up grid of full product cards. The "Other options:" label
+                    // was removed — the cards speak for themselves.
                     renderProductsBatched(data.products);
                     scrollToBottom();
                 }
@@ -1048,23 +1047,46 @@
         scrollToBottom();
     };
 
-    // ── Render products: 1 card if single, 2-up grid of full cards if multiple ──
+    // ── Render products: 1 card if single, 2-up grid (3 visible + See more) if multiple ──
     async function renderProductsBatched(products) {
+        if (!products || products.length === 0) return;
         if (products.length === 1) {
-            // Single result — full product card
             appendCard(renderProductCard(products[0]), false);
-        } else if (products.length > 1) {
-            // Multiple results — render each as a full card inside a 2-column grid
-            // (V2.17: replaced renderConsolidatedCard with full cards per Peter's
-            // feedback. Compare-style side-by-side for all multi-product responses.)
-            var gridHtml = '<div class="product-card-grid">';
-            products.forEach(function (p) {
-                gridHtml += renderProductCard(p);
-            });
-            gridHtml += '</div>';
-            appendCard(gridHtml, false);
+            return;
         }
+        // Multiple results — render each as a full card inside a 2-column grid.
+        // Show first 3 visible, remainder hidden behind a "See N more" button.
+        var VISIBLE = 3;
+        var gridId = 'grid_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        var html = '<div class="product-card-grid">';
+        products.forEach(function (p, idx) {
+            var hidden = idx >= VISIBLE;
+            html += '<div class="product-card-slot" data-grid="' + gridId + '"' +
+                (hidden ? ' data-hidden="1" style="display:none;"' : '') + '>';
+            html += renderProductCard(p);
+            html += '</div>';
+        });
+        html += '</div>';
+        if (products.length > VISIBLE) {
+            var hiddenN = products.length - VISIBLE;
+            html += '<div class="see-more-wrapper" id="' + gridId + '_btn">';
+            html += '<button class="see-more-btn" onclick="expandGrid(\'' + gridId + '\')">';
+            html += 'See ' + hiddenN + ' more';
+            html += '</button></div>';
+        }
+        appendCard(html, false);
     }
+
+    // Reveal the hidden cards in a grid and remove the See more button.
+    window.expandGrid = function (gridId) {
+        var slots = document.querySelectorAll('.product-card-slot[data-grid="' + gridId + '"][data-hidden="1"]');
+        slots.forEach(function (s) {
+            s.style.display = '';
+            s.removeAttribute('data-hidden');
+        });
+        var btn = document.getElementById(gridId + '_btn');
+        if (btn) btn.remove();
+    };
 
     // Consolidated card — one card, multiple products as rows
     window.renderConsolidatedCard = function (products) {

@@ -204,7 +204,7 @@
             margin: 4px 0;
             max-width: 100%;
         }
-        .product-card-grid .product-card {
+        .product-card-slot .product-card {
             margin: 0; /* grid handles spacing */
         }
         @media (max-width: 720px) {
@@ -212,6 +212,22 @@
                 grid-template-columns: 1fr; /* stack on narrow screens */
             }
         }
+        /* See more button revealed when a grid has >3 products */
+        .see-more-wrapper {
+            text-align: center;
+            margin: 8px 0 4px 0;
+        }
+        .see-more-btn {
+            padding: 8px 20px;
+            background: var(--navy);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .see-more-btn:hover { opacity: 0.9; }
 
         /* ── Product Card ── */
         .product-card {
