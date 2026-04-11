@@ -457,8 +457,73 @@ async def chat(request: Request, req: ChatRequest):
     try:
         update_from_message(req.session_id, req.message, state.df)
 
-        # Agent mode: single code path, no intent classification
-        if _agent is not None:
+        # --- Pregame Pipeline: Voice Echo + Edge Crew pattern ---
+        # Turn 2+: check cache first — instant answer for probable follow-ups
+        from pregame_pipeline import handle_turn2, run_pregame_pipeline
+        from context_store import get_context
+
+        cached = handle_turn2(req.session_id, req.message)
+        if cached:
+            result = cached
+            result["quote_state"] = snapshot_quote_state(req.session_id)
+            await _persist_turn(
+                user_id, req.message, result.get("response", ""),
+                products=result.get("products"), session_id=req.session_id,
+            )
+            return result
+
+        # Turn 1: detect pregame/application intent and route to pipeline
+        # (cheap keyword match — reasoning about intent costs nothing here)
+        msg_lower = req.message.lower()
+        pregame_triggers = [
+            "customer meeting", "customer tomorrow", "meeting tomorrow",
+            "pregame", "prep me", "brief me", "walk me through",
+            "i have a ", "i'm meeting", "im meeting", "meeting with",
+        ]
+        industry_map = {
+            "brewery": "Food & Beverage", "brewing": "Food & Beverage",
+            "wine": "Food & Beverage", "winery": "Food & Beverage",
+            "distillery": "Food & Beverage", "spirits": "Food & Beverage",
+            "dairy": "Food & Beverage", "food": "Food & Beverage",
+            "beverage": "Food & Beverage", "beer": "Food & Beverage",
+            "pharma": "Pharmaceutical", "pharmaceutical": "Pharmaceutical",
+            "biotech": "Pharmaceutical", "sterile": "Pharmaceutical",
+            "refinery": "Oil & Gas", "refineries": "Oil & Gas",
+            "oil and gas": "Oil & Gas", "oilfield": "Oil & Gas",
+            "upstream": "Oil & Gas", "downstream": "Oil & Gas",
+            "midstream": "Oil & Gas",
+            "data center": "HVAC", "hvac": "HVAC",
+            "building automation": "HVAC",
+            "hydraulic": "Hydraulic", "lube oil": "Hydraulic",
+            "gearbox": "Hydraulic", "turbine lube": "Hydraulic",
+            "municipal water": "Water Treatment", "wastewater": "Water Treatment",
+            "water treatment": "Water Treatment", "ro ": "Water Treatment",
+            "compressed air": "Compressed Air", "instrument air": "Compressed Air",
+            "chemical process": "Chemical Processing", "chemical plant": "Chemical Processing",
+            "chemical": "Chemical Processing",
+            "manufacturing": "Industrial", "plant": "Industrial",
+            "industrial": "Industrial",
+        }
+        detected_app = None
+        for keyword, bucket in industry_map.items():
+            if keyword in msg_lower:
+                detected_app = bucket
+                break
+
+        is_pregame = any(trig in msg_lower for trig in pregame_triggers) and detected_app is not None
+
+        if is_pregame:
+            logger.info(f"[pregame] routing to pipeline: app={detected_app}")
+            result = await run_pregame_pipeline(
+                df=state.df,
+                session_id=req.session_id,
+                user_message=req.message,
+                application_bucket=detected_app,
+                customer_context=req.message,
+            )
+            result["quote_state"] = snapshot_quote_state(req.session_id)
+        elif _agent is not None:
+            # Non-pregame: fall through to agent (gpt-4o or Claude, with tools)
             result = await _agent.chat(message=req.message, session_id=req.session_id)
             result["quote_state"] = snapshot_quote_state(req.session_id)
         else:
