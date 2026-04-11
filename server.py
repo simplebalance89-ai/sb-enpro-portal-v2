@@ -30,7 +30,14 @@ from azure_client import health_check as azure_health_check, close_client
 logger = logging.getLogger("enpro.server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
-# NEW: v3.0 Unified Backend (add this)
+# Agent mode (replaces router.py when enabled)
+_agent = None
+if settings.USE_AGENT:
+    logger.info("Agent mode enabled — will initialize after data load")
+else:
+    logger.info("Agent mode disabled — using legacy router")
+
+# v3.0 Unified Backend
 if settings.USE_UNIFIED_HANDLER:
     from mastermind_v3_prod import router as mastermind_router, init_mastermind
     import mastermind_v3_prod as _v3_module
@@ -38,7 +45,6 @@ if settings.USE_UNIFIED_HANDLER:
 else:
     mastermind_router = None
     _v3_module = None
-    logger.info("Using legacy router")
 from governance import run_pre_checks
 from quote_state import (
     merge_into_quote_request,
@@ -124,7 +130,22 @@ async def lifespan(app: FastAPI):
                 f"{len(state.chemicals_df)} chemical entries"
             )
             
-            # NEW: Initialize v3.0 unified backend (add this)
+            # Initialize agent if enabled
+            if settings.USE_AGENT:
+                try:
+                    from agent import EnproAgent
+                    global _agent
+                    _agent = EnproAgent(
+                        df=state.df,
+                        chemicals_df=state.chemicals_df,
+                        deployment=settings.AZURE_AGENT_DEPLOYMENT,
+                    )
+                    logger.info(f"Agent initialized: model={settings.AZURE_AGENT_DEPLOYMENT}")
+                except Exception as e:
+                    logger.error(f"Agent init failed (falling back to router): {e}")
+                    _agent = None
+
+            # Initialize v3.0 unified backend
             if settings.USE_UNIFIED_HANDLER and mastermind_router:
                 try:
                     init_mastermind(state.df)
@@ -420,17 +441,23 @@ async def chat(request: Request, req: ChatRequest):
 
     try:
         update_from_message(req.session_id, req.message, state.df)
-        # Use legacy router with fixed azure_client.py (max_completion_tokens, no temperature)
-        result = await handle_message(
-            message=req.message,
-            session_id=req.session_id,
-            mode=req.mode,
-            df=state.df,
-            chemicals_df=state.chemicals_df,
-            history=history or None,
-            user_rep_id=user_rep_id,
-        )
-        result["quote_state"] = snapshot_quote_state(req.session_id)
+
+        # Agent mode: single code path, no intent classification
+        if _agent is not None:
+            result = await _agent.chat(message=req.message, session_id=req.session_id)
+            result["quote_state"] = snapshot_quote_state(req.session_id)
+        else:
+            # Legacy router fallback
+            result = await handle_message(
+                message=req.message,
+                session_id=req.session_id,
+                mode=req.mode,
+                df=state.df,
+                chemicals_df=state.chemicals_df,
+                history=history or None,
+                user_rep_id=user_rep_id,
+            )
+            result["quote_state"] = snapshot_quote_state(req.session_id)
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
         return JSONResponse(
