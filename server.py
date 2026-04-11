@@ -465,29 +465,30 @@ async def _route_chat(req, history, user_rep_id) -> dict:
     Returns the result dict. Caller is responsible for persisting the turn
     and wrapping errors.
     """
-    from pregame_pipeline import handle_turn2, run_pregame_pipeline
+    # Stages 1 + 2 (Turn 2 cache + pregame pipeline) are BYPASSED for now.
+    # They depend on Anthropic Claude API calls which are failing in this
+    # session — either credits or config. Everything routes straight to the
+    # gpt-4o agent below. To re-enable pregame, un-comment the import and
+    # the two stage blocks.
+    # from pregame_pipeline import handle_turn2, run_pregame_pipeline
+    # cached = handle_turn2(req.session_id, req.message)
+    # if cached:
+    #     cached["quote_state"] = snapshot_quote_state(req.session_id)
+    #     return cached
+    # detected_app = _detect_pregame(req.message)
+    # if detected_app:
+    #     logger.info(f"[pregame] routing to pipeline: app={detected_app}")
+    #     result = await run_pregame_pipeline(
+    #         df=state.df,
+    #         session_id=req.session_id,
+    #         user_message=req.message,
+    #         application_bucket=detected_app,
+    #         customer_context=req.message,
+    #     )
+    #     result["quote_state"] = snapshot_quote_state(req.session_id)
+    #     return result
 
-    # Stage 1 — Turn 2 cache
-    cached = handle_turn2(req.session_id, req.message)
-    if cached:
-        cached["quote_state"] = snapshot_quote_state(req.session_id)
-        return cached
-
-    # Stage 2 — Pregame detection + pipeline
-    detected_app = _detect_pregame(req.message)
-    if detected_app:
-        logger.info(f"[pregame] routing to pipeline: app={detected_app}")
-        result = await run_pregame_pipeline(
-            df=state.df,
-            session_id=req.session_id,
-            user_message=req.message,
-            application_bucket=detected_app,
-            customer_context=req.message,
-        )
-        result["quote_state"] = snapshot_quote_state(req.session_id)
-        return result
-
-    # Stage 3 — Agent (injects context_store if cached pregame exists)
+    # Stage 3 — Agent (gpt-4o, forced at startup)
     if _agent is not None:
         result = await _agent.chat(message=req.message, session_id=req.session_id)
         result["quote_state"] = snapshot_quote_state(req.session_id)
