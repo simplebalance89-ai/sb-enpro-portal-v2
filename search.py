@@ -168,12 +168,13 @@ def search_products(
         # No query, no filter — nothing to search
         return {"results": [], "total_found": 0, "query": "", "search_type": "empty"}
 
-    # Stock filter
+    # Stock filter — HARD cut. When in_stock_only is True and nothing is
+    # stocked, return an empty result set instead of silently falling back
+    # to every OOS row. The old fallback produced confusing "here are
+    # options... all out of stock" responses in the agent. Callers that
+    # want OOS visibility should explicitly pass in_stock_only=False.
     if in_stock_only and "Total_Stock" in matches.columns and not matches.empty:
-        stocked = matches[matches["Total_Stock"] > 0]
-        # Fall back to all results if stock filter empties everything
-        if not stocked.empty:
-            matches = stocked
+        matches = matches[matches["Total_Stock"] > 0]
 
     # Priority sort: ACTIVE + in stock first, dormant tiers after
     # (Activity_Flag priority asc, Total_Stock desc)
