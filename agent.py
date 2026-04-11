@@ -212,7 +212,7 @@ class EnproAgent:
                     messages=messages,
                     tools=TOOL_DEFINITIONS,
                     tool_choice="auto",
-                    max_tokens=1024,
+                    max_tokens=4096,  # Reasoning models need headroom for <think> blocks
                 )
             except Exception as e:
                 logger.error(f"Agent API call failed: {e}")
