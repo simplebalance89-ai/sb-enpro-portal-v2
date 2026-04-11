@@ -1,0 +1,418 @@
+{
+  "_meta": {
+    "source": "John's Technical Documents (SharePoint scrub)",
+    "version": "V5",
+    "last_updated": "2026-04-10",
+    "description": "Structured filtration reference keyed by topic. Used by get_filtration_reference tool. Skips chemical compatibility (handled by check_chemical) and escalation triggers (handled by check_safety)."
+  },
+
+  "fundamentals": {
+    "title": "Filtration Fundamentals",
+    "definition": "Separation of particles from a fluid (liquid or gas) using a porous medium.",
+    "key_terms": {
+      "micron": "1 µm = 0.001 mm. Human hair is ~70 µm. Bacteria ~0.2-0.45 µm. Visible haze ~15-20 µm.",
+      "absolute_rating": "99.9% removal of particles at rated size",
+      "nominal_rating": "60-90% removal of particles at rated size (varies by manufacturer)",
+      "flow_rate": "Volume per time — GPM (US), LPM, or m³/hr",
+      "differential_pressure": "Pressure drop across the filter, measured in psid",
+      "dirt_holding_capacity": "Amount of contaminant a filter can hold before changeout",
+      "beta_ratio": "Upstream particle count divided by downstream particle count at a given size. Higher beta = higher efficiency. Efficiency = (β-1)/β × 100%"
+    },
+    "beta_ratio_table": [
+      {"beta": 2, "efficiency": "50%", "rating": "Nominal"},
+      {"beta": 10, "efficiency": "90%", "rating": "Nominal"},
+      {"beta": 75, "efficiency": "98.7%", "rating": "Nominal"},
+      {"beta": 200, "efficiency": "99.5%", "rating": "Absolute"},
+      {"beta": 1000, "efficiency": "99.9%", "rating": "Absolute"},
+      {"beta": 5000, "efficiency": "99.98%", "rating": "Absolute"}
+    ],
+    "pressure_drop_guidance": {
+      "clean_dp": "0.5-2 psi typical for new filter",
+      "changeout_dp": "15-35 psid depending on application",
+      "hydraulic_max_dp": "35-50 psid typical",
+      "warning": "Never exceed manufacturer rating (collapse risk)"
+    }
+  },
+
+  "filter_types": {
+    "title": "Filter Types by Mechanism and Media",
+    "by_mechanism": {
+      "depth": {
+        "description": "Particles trapped throughout media thickness",
+        "best_for": "Pre-filtration, high dirt loads, deformable particles",
+        "flow_per_10in": "2.5-5 GPM recommended, 5 GPM max"
+      },
+      "surface_membrane": {
+        "description": "Particles captured on the surface",
+        "best_for": "Final filtration, critical applications, rigid particles",
+        "flow_per_10in": "5 GPM recommended, 10 GPM max"
+      },
+      "pleated": {
+        "description": "Folded media increases surface area",
+        "best_for": "Balance of capacity and efficiency",
+        "flow_per_10in": "5 GPM recommended, 10 GPM max"
+      },
+      "bag": {
+        "description": "Large surface area, high flow, low cost",
+        "best_for": "Bulk contamination, pre-filtration"
+      }
+    },
+    "cartridge_construction": [
+      {"type": "Yarn Wound (Depth)", "description": "Yarn of twisted fibers wound around center core", "examples": ["DFT Classic", "ENCORE", "Silver Screen", "RO Prep"]},
+      {"type": "Non-woven (Depth)", "description": "Meltblown (extruded) fibers layered", "examples": ["Nexis", "Poly-Fine ARD", "Clarisep"]},
+      {"type": "Pleated (Surface)", "description": "Spunbonded or meltblown sheets, paper-like", "examples": ["Duo-Fine", "Poly-Fine", "Chem-Fine", "XSZ"]},
+      {"type": "Membrane", "description": "Polymeric sheets with symmetric/asymmetric pores", "examples": ["Asymmetrix", "Fluogyte", "Varidine R", "Supor (Pall PES)"]},
+      {"type": "Resin-Bonded", "description": "Fibers treated with resin for rigidity", "examples": ["Hi-V"]},
+      {"type": "Sintered Metal", "description": "Porous media from sintered metal", "examples": ["Dynalloy"]},
+      {"type": "Woven Metal", "description": "Fibrous media woven into pattern", "examples": ["Dynamesh"]},
+      {"type": "Granular", "description": "Porous activated carbon", "examples": ["Micro-Carbon II"]}
+    ]
+  },
+
+  "media_types": {
+    "title": "Filter Media: Max Temperatures and Chemical Compatibility",
+    "note": "Max temps from V5 reference. For specific chemical compatibility use check_chemical tool.",
+    "media": [
+      {"media": "Polypropylene (PP)", "max_temp_f": 180, "chemical_resistance": "Good for water, dilute acids/bases, alcohols. NOT for aromatic solvents, chlorinated solvents, oxidizers.", "applications": "General process"},
+      {"media": "Polyethersulfone (PES)", "max_temp_f": 180, "chemical_resistance": "Good", "applications": "Sterile filtration, pharma, beverage"},
+      {"media": "Nylon", "max_temp_f": 180, "chemical_resistance": "Good for aqueous. Limited chemical resistance.", "applications": "Water, beverages"},
+      {"media": "PVDF", "max_temp_f": 275, "chemical_resistance": "Very good", "applications": "Chemicals, solvents"},
+      {"media": "PTFE", "max_temp_f": 500, "chemical_resistance": "Excellent — nearly all chemicals. NOT for molten alkali metals or elemental fluorine.", "applications": "Aggressive chemicals, venting, high temp"},
+      {"media": "Microglass (Glass Fiber)", "max_temp_f": 300, "chemical_resistance": "Moderate", "applications": "Hydraulic, oil, absolute ratings"},
+      {"media": "Cellulose", "max_temp_f": 180, "chemical_resistance": "Limited", "applications": "Low-cost, disposable, nominal"},
+      {"media": "316L Stainless Steel", "max_temp_f": 750, "chemical_resistance": "Excellent except chlorides at high temp, hot HCl, hot concentrated H2SO4", "applications": "High temp, steam, pressure"}
+    ]
+  },
+
+  "absolute_vs_nominal": {
+    "title": "Absolute vs Nominal Ratings",
+    "nominal": {
+      "definition": "Retention of ~90% at rated particle size",
+      "range": "60-98% depending on manufacturer",
+      "use_cases": "Pre-filtration, general process, non-critical applications"
+    },
+    "absolute": {
+      "definition": "Retention of 99.9%+ at rated particle size",
+      "industry_standard": "99.9999% (Log 6 reduction) for sterile",
+      "use_cases": "Sterile filtration, critical applications, validated processes"
+    },
+    "rule_of_thumb": "When in doubt for critical service, use absolute. Nominal is fine for pre-filtration ahead of a final absolute filter."
+  },
+
+  "cartridge_flow_rates": {
+    "title": "Cartridge Flow Rates (Water @ 1 psid)",
+    "note": "Clean filter capacity. Size systems at 70-80% of max rated flow for longer life.",
+    "by_length": [
+      {"length": "10\"", "pleated_gpm": "5-8", "depth_gpm": "3-5", "high_flow_gpm": "50-80"},
+      {"length": "20\"", "pleated_gpm": "10-16", "depth_gpm": "6-10", "high_flow_gpm": "100-160"},
+      {"length": "30\"", "pleated_gpm": "15-24", "depth_gpm": "9-15", "high_flow_gpm": "150-240"},
+      {"length": "40\"", "pleated_gpm": "20-32", "depth_gpm": "12-20", "high_flow_gpm": "200-320"}
+    ],
+    "sizing_formula": "Number of cartridges = System Flow (GPM) / Flow per cartridge (GPM)",
+    "utilization_rule": "Use 50-70% of rated flow for longer service life"
+  },
+
+  "bag_filter_flow_rates": {
+    "title": "Bag Filter Flow Rates",
+    "sizes": [
+      {"size": "#1", "dimensions": "7\" x 16\"", "flow_gpm": 80, "surface_area_ft2": 1.5},
+      {"size": "#2", "dimensions": "7\" x 32\"", "flow_gpm": 160, "surface_area_ft2": 3.0},
+      {"size": "#4", "dimensions": "8\" x 14\"", "flow_gpm": 80, "surface_area_ft2": 2.0}
+    ]
+  },
+
+  "micron_selection_by_particle": {
+    "title": "Micron Selection by Particle Type",
+    "particle_reference": [
+      {"particle": "Table salt", "size_microns": 100},
+      {"particle": "Human hair", "size_microns": "40-70"},
+      {"particle": "Visible haze", "size_microns": "15-20"},
+      {"particle": "Talcum powder", "size_microns": 10},
+      {"particle": "Fine test dust", "size_microns": "0.5-176"},
+      {"particle": "Pseudomonas diminuta (test bacteria)", "size_microns": 0.3},
+      {"particle": "Bacteria (general)", "size_microns": "0.2-0.45"},
+      {"particle": "Virus/pyrogen", "size_microns": "0.1 or less"}
+    ],
+    "selection_guide": [
+      {"target": "Visible sediment", "micron": "50-100", "example": "Pre-filtration"},
+      {"target": "Fine particles", "micron": "10-25", "example": "Process water"},
+      {"target": "Bacteria", "micron": "0.2-0.45", "example": "Sterile filtration"},
+      {"target": "Virus/pyrogen", "micron": "0.1 or less", "example": "Critical pharma"}
+    ]
+  },
+
+  "particle_to_filter_type": {
+    "title": "Particle Type to Filter Selection",
+    "decision": [
+      {"particle_type": "Rigid particles", "recommended_filter": "Pleated surface filter", "reason": "Will not deform; builds cake on surface"},
+      {"particle_type": "Deformable particles (gels, soft particles)", "recommended_filter": "Depth filter", "reason": "Adsorptive retention throughout media"},
+      {"particle_type": "Colloids / in suspension", "recommended_filter": "Membrane filter", "reason": "Require tightest pore structure"}
+    ]
+  },
+
+  "depth_vs_surface": {
+    "title": "Depth Filters vs Surface Filters Comparison",
+    "comparison": [
+      {"parameter": "Deformable particles", "surface": "May blind off pleats", "depth": "Recommended — adsorptive retention"},
+      {"parameter": "Non-deformable particles", "surface": "Removes narrow range", "depth": "Removes broader range"},
+      {"parameter": "Rating available", "surface": "Absolute or nominal", "depth": "Absolute or nominal"},
+      {"parameter": "Purpose", "surface": "Classification", "depth": "Clarification"},
+      {"parameter": "Flow per 10\"", "surface": "10 GPM recommended", "depth": "5 GPM recommended"},
+      {"parameter": "Economics <10 µm", "surface": "Holds more dirt, higher flow", "depth": "More economical >10 µm"},
+      {"parameter": "Cartridge cost", "surface": "More expensive, fewer replacements", "depth": "Less expensive, more replacements"},
+      {"parameter": "Housing cost", "surface": "Fewer cartridges = smaller housing", "depth": "More cartridges = bigger housing"}
+    ]
+  },
+
+  "filtration_variables_impact": {
+    "title": "Impact of Operating Variables on Efficiency and Life",
+    "variables": [
+      {"variable": "Flow rate", "efficiency": "Lower flow = higher efficiency", "life": "Lower flow = longer life"},
+      {"variable": "Differential pressure (PSID)", "efficiency": "Lower PSID = higher efficiency", "life": "Lower PSID = longer life"},
+      {"variable": "Viscosity", "efficiency": "Lower viscosity = higher efficiency", "life": "Lower viscosity = longer life"},
+      {"variable": "Contaminant type", "efficiency": "Depends on pore/particle relationship", "life": "Non-deformable promotes filter cake"},
+      {"variable": "Flow conditions", "efficiency": "Steady flow is better", "life": "Pulsing/surging is detrimental"},
+      {"variable": "Chemical compatibility", "efficiency": "Incompatibility threatens efficiency", "life": "Incompatibility threatens life"},
+      {"variable": "Filter area", "efficiency": "More area = higher efficiency", "life": "More area = longer life"}
+    ]
+  },
+
+  "process_ranges": {
+    "title": "Process Approximate Ranges (Microns)",
+    "processes": [
+      {"process": "Bag filter", "range_microns": "1-100+"},
+      {"process": "Cartridge filter", "range_microns": "0.006-250 (typical 0.1-100)"},
+      {"process": "Centrifuge", "range_microns": "1-100+"},
+      {"process": "Cyclone", "range_microns": "10-100+"},
+      {"process": "Filter press", "range_microns": "1-100+"},
+      {"process": "Flat bed", "range_microns": "1-100+"},
+      {"process": "Ion exchange", "range_microns": "0.001-0.01 (prefiltration needed)"},
+      {"process": "Leaf filter", "range_microns": "1-100+"},
+      {"process": "Reverse osmosis", "range_microns": "0.001-0.01 (prefiltration needed)"},
+      {"process": "Strainer", "range_microns": "10-100+"},
+      {"process": "Vacuum disk", "range_microns": "1-100+"},
+      {"process": "Vacuum drum", "range_microns": "1-100+"}
+    ]
+  },
+
+  "application:food_beverage": {
+    "title": "Food & Beverage Applications",
+    "industry_overview": "Breweries, wineries, distilleries, dairy, soft drinks, bottled water. FDA and 3-A standards mandatory. NSF 61 required for potable water contact.",
+    "typical_specs": {
+      "beer_wine": "0.45-1.0 µm membrane for sterile filtration; depth sheets (Filtrox) for upstream clarification",
+      "spirits_whisky": "0.5-1.0 µm depth sheets for polishing; membrane for final",
+      "edible_oils": "5-25 µm depth, remove particulates",
+      "beverages": "0.2-1.0 µm for microbiological control",
+      "cip_systems": "Sanitary 316L housings, high-temp capable media"
+    },
+    "critical_filtration_needs": [
+      "Clarity and sterility",
+      "Batch consistency",
+      "CIP chemical compatibility",
+      "Regulatory compliance (FDA, 3-A, NSF 61)"
+    ],
+    "recommended_products": "Membrane (PES, PTFE), depth sheets (Filtrox is the primary brand for depth sheets — NOT Pall), sintered metal for culinary steam",
+    "questions_to_ask": [
+      "What beverage / process fluid?",
+      "Flow rate and operating temperature?",
+      "Certifications needed (FDA, 3-A, NSF)?",
+      "CIP chemicals and temperatures?",
+      "Sterile or clarification duty?"
+    ]
+  },
+
+  "application:pharmaceutical": {
+    "title": "Pharmaceutical / Biotech Applications",
+    "industry_overview": "Sterile filtration, buffer prep, API processing, WFI (water for injection) systems. Validation required.",
+    "typical_specs": {
+      "sterile_filtration": "0.2 µm absolute, validated, bacterial challenge tested (Pseudomonas diminuta)",
+      "prefiltration": "0.5-5 µm to protect final sterile filter",
+      "buffer_prep": "0.2 µm membrane",
+      "wfi_systems": "Sanitary 316L, steam sterilizable"
+    },
+    "media_requirements": "Absolute-rated PES or PTFE only. Never nominal for sterile. Never PVDF unless solvent service.",
+    "validation_required": true,
+    "questions_to_ask": [
+      "Sterile or non-sterile duty?",
+      "Fluid type and temperature?",
+      "Steam sterilization or gamma irradiation?",
+      "Validation and documentation requirements?"
+    ]
+  },
+
+  "application:hydraulic": {
+    "title": "Hydraulic and Lube Oil Applications",
+    "industry_overview": "Hydraulic systems, gearboxes, lube oil, turbine lube. ISO cleanliness targets drive specs.",
+    "typical_specs": {
+      "iso_cleanliness_target": "16/14/11 or better",
+      "typical_rating": "3-10 µm absolute",
+      "change_interval": "Based on ΔP or scheduled time",
+      "max_dp": "35-50 psid typical"
+    },
+    "media_recommendations": "Microglass depth for absolute rated, Pall Ultipleat HF for turbine lube, standard pleated for general hydraulic",
+    "critical_concerns": [
+      "Catalyst / component protection",
+      "Cleanliness to ISO 16/14/11 or better",
+      "Pressure spike tolerance",
+      "Temperature range (cold start to operating)"
+    ],
+    "questions_to_ask": [
+      "Flow rate and operating pressure?",
+      "Operating temperature range?",
+      "Target ISO cleanliness code?",
+      "Type of system (gearbox, turbine, hydraulic)?"
+    ]
+  },
+
+  "application:oil_gas": {
+    "title": "Oil & Gas Applications",
+    "industry_overview": "Upstream, midstream, and downstream oil and gas. Amine treating, glycol dehydration, condensate, sour water.",
+    "sub_applications": [
+      {"name": "Acid Gas Sweetening (Amine)", "filtration_need": "Amine protection from HC contamination", "recommended": "Pall LLS or LLH coalescer (HC contamination is the root cause of amine foaming)"},
+      {"name": "Glycol Dehydration", "filtration_need": "Glycol cleanliness — multistage", "recommended": "SepraSol Plus + Ultipleat HF + Marksman"},
+      {"name": "Condensate Stabilization", "filtration_need": "Particle removal", "recommended": "Pleated cartridges"}
+    ],
+    "escalation_triggers": "H2S, HF, NACE/sour service (MR0175), hydrogen service — always escalate to engineering"
+  },
+
+  "application:refinery": {
+    "title": "Refinery Applications",
+    "industry_overview": "Refinery process streams. High temp, corrosive service, catalyst protection.",
+    "sub_applications": [
+      {"name": "Hydrotreating", "filtration_need": "Catalyst protection", "recommended": "High-temp metal media"},
+      {"name": "Caustic Treating", "filtration_need": "Caustic clarity", "recommended": "Chemical-compatible media (316SS, PTFE)"},
+      {"name": "Sour Water Stripping", "filtration_need": "Corrosion control", "recommended": "Chemical-resistant — escalate for NACE MR0175"}
+    ],
+    "escalation_triggers": "H2S, sour service, temperatures > 400°F, hydrogen — always escalate"
+  },
+
+  "application:water_treatment": {
+    "title": "Water Treatment Applications",
+    "industry_overview": "Municipal water, wastewater, industrial process water, RO prefiltration.",
+    "typical_specs": {
+      "prefiltration_for_ro": "5-25 µm to protect RO membranes",
+      "final_polish": "0.5-5 µm",
+      "sterile_critical": "0.2 µm for critical applications"
+    },
+    "regulatory": "NSF 61 mandatory for potable water contact. State in every response for municipal applications.",
+    "recommended_media": "Polypropylene for general service, PES for critical, activated carbon for taste/odor"
+  },
+
+  "application:compressed_air": {
+    "title": "Compressed Air Applications",
+    "industry_overview": "Instrument air, process air, breathing air. Particulate + oil + water removal.",
+    "typical_specs": {
+      "particulate": "0.01-1 µm depending on class",
+      "coalescing": "Required for oil removal",
+      "desiccant": "For dew point control"
+    },
+    "recommended_products": "SPX/Hankison coalescers, Pall compressed air filters"
+  },
+
+  "application:chemical_processing": {
+    "title": "Chemical Processing Applications",
+    "industry_overview": "Solvents, acids, caustics, polymer processing, specialty chemicals.",
+    "typical_specs": {
+      "media_selection_rule": "Match media to chemical — PTFE for aggressive, 316SS for high temp, PP only for mild service"
+    },
+    "escalation_triggers": "Unknown chemical combinations, mixed solvents, concentration >50% — escalate for SDS review"
+  },
+
+  "application:hvac": {
+    "title": "HVAC Applications",
+    "industry_overview": "Building HVAC, data centers, clean rooms, paint booth air filtration.",
+    "typical_specs": {
+      "merv_rating": "MERV 8-16 depending on application",
+      "data_center": "MERV 13-14 typical, pre + final filter stages",
+      "paint_booth": "Pre-filter (rough) + final (fine) + exhaust"
+    }
+  },
+
+  "application:industrial": {
+    "title": "Industrial (General Process) Applications",
+    "industry_overview": "General manufacturing plant applications that don't fit a specific vertical. Default bucket when the use case is 'cooling water', 'process water', 'general plant' without more specificity.",
+    "typical_approach": "Start with 10-25 µm depth for bulk particle removal, add finer stages as needed based on specific process requirements."
+  },
+
+  "sizing_questions": {
+    "title": "Key Specifications to Gather Before Recommending",
+    "questions": [
+      "Fluid: type, viscosity, temperature, chemical composition?",
+      "Flow rate: normal operating, peak demand?",
+      "Pressure: operating, max allowable ΔP?",
+      "Particles: type, size distribution, concentration?",
+      "Cleanliness target: micron rating, ISO code, sterile?",
+      "Environment: indoor/outdoor, hazardous area, sanitary?",
+      "Changeout: frequency preference, maintenance access?",
+      "Certifications needed: FDA, NSF, 3-A, NACE?"
+    ]
+  },
+
+  "troubleshooting:short_filter_life": {
+    "title": "Troubleshooting: Short Filter Life",
+    "checklist": [
+      "Check upstream contamination levels — may need prefiltration",
+      "Verify filter rating matches application (too fine = premature loading)",
+      "Consider adding a coarser prefilter stage",
+      "Check for emulsions or gels that blind surface filters",
+      "Verify media compatibility with fluid"
+    ]
+  },
+
+  "troubleshooting:high_pressure_drop": {
+    "title": "Troubleshooting: High Pressure Drop",
+    "checklist": [
+      "Undersized filter — increase surface area or parallel cartridges",
+      "Filter plugged — replace and investigate upstream source",
+      "Viscosity change — check fluid temperature",
+      "Wrong media — verify chemical compatibility and rating"
+    ]
+  },
+
+  "troubleshooting:poor_filtration": {
+    "title": "Troubleshooting: Poor Filtration",
+    "checklist": [
+      "Filter bypass — check seals, o-rings, and installation",
+      "Wrong micron rating — step to finer filter",
+      "Particle type mismatch — try different media (depth vs surface)",
+      "Channeling — degraded filter, replace"
+    ]
+  },
+
+  "manufacturer:pall": {
+    "title": "Pall Corporation Product Lines",
+    "product_lines": [
+      {"line": "Ultipleat High Flow", "max_flow_gpm_per_element": 500, "use": "High-flow industrial, water treatment"},
+      {"line": "Profile", "type": "Depth filtration", "use": "Pre-filtration, process"},
+      {"line": "Supor", "type": "PES membrane", "use": "Sterile filtration, pharma"},
+      {"line": "LLS / LLH", "type": "Coalescer", "use": "Amine treating, liquid-liquid separation"},
+      {"line": "Marksman", "use": "Glycol dehydration final stage"},
+      {"line": "SepraSol Plus", "use": "Glycol dehydration first stage"}
+    ]
+  },
+
+  "manufacturer:graver": {
+    "title": "Graver Technologies Product Lines",
+    "product_lines": [
+      {"line": "TefTEC", "media": "PTFE membrane", "range_microns": "0.05-1.0", "max_temp_f": 203, "use": "Aggressive chemicals"},
+      {"line": "QMA", "media": "Microglass depth", "range_microns": "0.2-20", "use": "Absolute depth filtration"},
+      {"line": "Stratum A", "media": "Absolute depth", "range_microns": "0.3-100", "use": "Process depth filtration"}
+    ]
+  },
+
+  "manufacturer:ftc": {
+    "title": "FTC Filters Product Lines",
+    "product_lines": [
+      {"line": "Invicta", "max_flow_gpm": 1200, "max_pressure_psi_at_temp": "635 psi @ 400°F", "use": "High-flow high-pressure industrial"},
+      {"line": "Clarify / Torrent", "use": "High-capacity vessels"}
+    ]
+  },
+
+  "manufacturer:schroeder": {
+    "title": "Schroeder Industries Product Lines",
+    "product_lines": [
+      {"line": "NF Series", "max_flow_gpm": 20, "max_pressure_psi": 3000, "use": "Hydraulic, medium pressure"},
+      {"line": "GH Series", "max_flow_gpm": 60, "max_pressure_psi": 6000, "use": "Hydraulic, high pressure"}
+    ]
+  }
+}

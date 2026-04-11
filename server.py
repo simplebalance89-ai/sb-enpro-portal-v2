@@ -131,16 +131,31 @@ async def lifespan(app: FastAPI):
             )
             
             # Initialize agent if enabled
+            # Route to Claude agent when ANTHROPIC_API_KEY is set AND deployment
+            # name starts with "claude-". Otherwise use Azure OpenAI agent.
             if settings.USE_AGENT:
                 try:
-                    from agent import EnproAgent
                     global _agent
-                    _agent = EnproAgent(
-                        df=state.df,
-                        chemicals_df=state.chemicals_df,
-                        deployment=settings.AZURE_AGENT_DEPLOYMENT,
-                    )
-                    logger.info(f"Agent initialized: model={settings.AZURE_AGENT_DEPLOYMENT}")
+                    deployment = settings.AZURE_AGENT_DEPLOYMENT or ""
+                    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                    use_claude = bool(anthropic_key) and deployment.lower().startswith("claude")
+                    if use_claude:
+                        from agent_claude import EnproClaudeAgent
+                        _agent = EnproClaudeAgent(
+                            df=state.df,
+                            chemicals_df=state.chemicals_df,
+                            api_key=anthropic_key,
+                            model=deployment,
+                        )
+                        logger.info(f"Claude agent initialized: model={deployment}")
+                    else:
+                        from agent import EnproAgent
+                        _agent = EnproAgent(
+                            df=state.df,
+                            chemicals_df=state.chemicals_df,
+                            deployment=deployment,
+                        )
+                        logger.info(f"Azure agent initialized: model={deployment}")
                 except Exception as e:
                     logger.error(f"Agent init failed (falling back to router): {e}")
                     _agent = None
