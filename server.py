@@ -409,6 +409,108 @@ async def _persist_turn(
             logger.error(f"Failed to persist turn to Cosmos: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Shared chat routing — used by /api/chat AND /api/chat/stream
+# Turn 2 cache → pregame pipeline → agent → legacy router fallback chain.
+# ---------------------------------------------------------------------------
+
+_PREGAME_TRIGGERS = [
+    "customer meeting", "customer tomorrow", "meeting tomorrow",
+    "pregame", "prep me", "brief me", "walk me through",
+    "i have a ", "i'm meeting", "im meeting", "meeting with",
+    "customer pregame", "customer prep",
+]
+
+_INDUSTRY_MAP = {
+    "brewery": "Food & Beverage", "brewing": "Food & Beverage",
+    "wine": "Food & Beverage", "winery": "Food & Beverage",
+    "distillery": "Food & Beverage", "spirits": "Food & Beverage",
+    "dairy": "Food & Beverage", "food": "Food & Beverage",
+    "beverage": "Food & Beverage", "beer": "Food & Beverage",
+    "pharma": "Pharmaceutical", "pharmaceutical": "Pharmaceutical",
+    "biotech": "Pharmaceutical", "sterile": "Pharmaceutical",
+    "refinery": "Oil & Gas", "refineries": "Oil & Gas",
+    "oil and gas": "Oil & Gas", "oilfield": "Oil & Gas",
+    "upstream": "Oil & Gas", "downstream": "Oil & Gas", "midstream": "Oil & Gas",
+    "data center": "HVAC", "hvac": "HVAC", "building automation": "HVAC",
+    "hydraulic": "Hydraulic", "lube oil": "Hydraulic",
+    "gearbox": "Hydraulic", "turbine lube": "Hydraulic",
+    "municipal water": "Water Treatment", "wastewater": "Water Treatment",
+    "water treatment": "Water Treatment", "ro ": "Water Treatment",
+    "compressed air": "Compressed Air", "instrument air": "Compressed Air",
+    "chemical process": "Chemical Processing", "chemical plant": "Chemical Processing",
+    "chemical": "Chemical Processing",
+    "manufacturing": "Industrial", "plant": "Industrial", "industrial": "Industrial",
+}
+
+
+def _detect_pregame(message: str) -> Optional[str]:
+    """Return the Application bucket if this is a pregame query, else None."""
+    msg_lower = message.lower()
+    is_pregame = any(trig in msg_lower for trig in _PREGAME_TRIGGERS)
+    if not is_pregame:
+        return None
+    for keyword, bucket in _INDUSTRY_MAP.items():
+        if keyword in msg_lower:
+            return bucket
+    return None
+
+
+async def _route_chat(req, history, user_rep_id) -> dict:
+    """
+    Shared chat routing used by both /api/chat and /api/chat/stream.
+
+    Order of resolution:
+      1. Turn 2 cache hit (handle_turn2) — instant, $0
+      2. Pregame pipeline (run_pregame_pipeline) — parallel reasoning, caches result
+      3. Agent (.chat) — Claude or gpt-4o with tool calling, now reads context_store
+      4. Legacy router (handle_message) — final fallback
+
+    Returns the result dict. Caller is responsible for persisting the turn
+    and wrapping errors.
+    """
+    from pregame_pipeline import handle_turn2, run_pregame_pipeline
+
+    # Stage 1 — Turn 2 cache
+    cached = handle_turn2(req.session_id, req.message)
+    if cached:
+        cached["quote_state"] = snapshot_quote_state(req.session_id)
+        return cached
+
+    # Stage 2 — Pregame detection + pipeline
+    detected_app = _detect_pregame(req.message)
+    if detected_app:
+        logger.info(f"[pregame] routing to pipeline: app={detected_app}")
+        result = await run_pregame_pipeline(
+            df=state.df,
+            session_id=req.session_id,
+            user_message=req.message,
+            application_bucket=detected_app,
+            customer_context=req.message,
+        )
+        result["quote_state"] = snapshot_quote_state(req.session_id)
+        return result
+
+    # Stage 3 — Agent (injects context_store if cached pregame exists)
+    if _agent is not None:
+        result = await _agent.chat(message=req.message, session_id=req.session_id)
+        result["quote_state"] = snapshot_quote_state(req.session_id)
+        return result
+
+    # Stage 4 — Legacy router fallback
+    result = await handle_message(
+        message=req.message,
+        session_id=req.session_id,
+        mode=req.mode,
+        df=state.df,
+        chemicals_df=state.chemicals_df,
+        history=history or None,
+        user_rep_id=user_rep_id,
+    )
+    result["quote_state"] = snapshot_quote_state(req.session_id)
+    return result
+
+
 async def _v3_handle_message(message: str, session_id: str, history=None):
     """Route through v3 mastermind and translate response to legacy format."""
     if _v3_module and _v3_module.mastermind:
@@ -456,88 +558,7 @@ async def chat(request: Request, req: ChatRequest):
 
     try:
         update_from_message(req.session_id, req.message, state.df)
-
-        # --- Pregame Pipeline: Voice Echo + Edge Crew pattern ---
-        # Turn 2+: check cache first — instant answer for probable follow-ups
-        from pregame_pipeline import handle_turn2, run_pregame_pipeline
-        from context_store import get_context
-
-        cached = handle_turn2(req.session_id, req.message)
-        if cached:
-            result = cached
-            result["quote_state"] = snapshot_quote_state(req.session_id)
-            await _persist_turn(
-                user_id, req.message, result.get("response", ""),
-                products=result.get("products"), session_id=req.session_id,
-            )
-            return result
-
-        # Turn 1: detect pregame/application intent and route to pipeline
-        # (cheap keyword match — reasoning about intent costs nothing here)
-        msg_lower = req.message.lower()
-        pregame_triggers = [
-            "customer meeting", "customer tomorrow", "meeting tomorrow",
-            "pregame", "prep me", "brief me", "walk me through",
-            "i have a ", "i'm meeting", "im meeting", "meeting with",
-        ]
-        industry_map = {
-            "brewery": "Food & Beverage", "brewing": "Food & Beverage",
-            "wine": "Food & Beverage", "winery": "Food & Beverage",
-            "distillery": "Food & Beverage", "spirits": "Food & Beverage",
-            "dairy": "Food & Beverage", "food": "Food & Beverage",
-            "beverage": "Food & Beverage", "beer": "Food & Beverage",
-            "pharma": "Pharmaceutical", "pharmaceutical": "Pharmaceutical",
-            "biotech": "Pharmaceutical", "sterile": "Pharmaceutical",
-            "refinery": "Oil & Gas", "refineries": "Oil & Gas",
-            "oil and gas": "Oil & Gas", "oilfield": "Oil & Gas",
-            "upstream": "Oil & Gas", "downstream": "Oil & Gas",
-            "midstream": "Oil & Gas",
-            "data center": "HVAC", "hvac": "HVAC",
-            "building automation": "HVAC",
-            "hydraulic": "Hydraulic", "lube oil": "Hydraulic",
-            "gearbox": "Hydraulic", "turbine lube": "Hydraulic",
-            "municipal water": "Water Treatment", "wastewater": "Water Treatment",
-            "water treatment": "Water Treatment", "ro ": "Water Treatment",
-            "compressed air": "Compressed Air", "instrument air": "Compressed Air",
-            "chemical process": "Chemical Processing", "chemical plant": "Chemical Processing",
-            "chemical": "Chemical Processing",
-            "manufacturing": "Industrial", "plant": "Industrial",
-            "industrial": "Industrial",
-        }
-        detected_app = None
-        for keyword, bucket in industry_map.items():
-            if keyword in msg_lower:
-                detected_app = bucket
-                break
-
-        is_pregame = any(trig in msg_lower for trig in pregame_triggers) and detected_app is not None
-
-        if is_pregame:
-            logger.info(f"[pregame] routing to pipeline: app={detected_app}")
-            result = await run_pregame_pipeline(
-                df=state.df,
-                session_id=req.session_id,
-                user_message=req.message,
-                application_bucket=detected_app,
-                customer_context=req.message,
-            )
-            result["quote_state"] = snapshot_quote_state(req.session_id)
-        elif _agent is not None:
-            # Non-pregame: fall through to agent (gpt-4o or Claude, with tools)
-            result = await _agent.chat(message=req.message, session_id=req.session_id)
-            result["quote_state"] = snapshot_quote_state(req.session_id)
-        else:
-            # Legacy router fallback
-            result = await handle_message(
-                message=req.message,
-                session_id=req.session_id,
-                mode=req.mode,
-                df=state.df,
-                chemicals_df=state.chemicals_df,
-                history=history or None,
-                user_rep_id=user_rep_id,
-            )
-            result["quote_state"] = snapshot_quote_state(req.session_id)
+        result = await _route_chat(req, history, user_rep_id)
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
         return JSONResponse(
@@ -600,25 +621,12 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
 
     yield _sse_event("ready", {"ts": datetime.utcnow().isoformat()})
 
-    # Run the handler — this is the blocking GPT call
+    # Run the handler — uses the SAME shared routing as /api/chat so the
+    # stream endpoint gets pregame pipeline, Turn 2 cache, agent fallback
+    # with context injection, and legacy fallback in one consistent chain.
     try:
         update_from_message(req.session_id, req.message, state.df)
-
-        # Agent mode: same routing as /api/chat
-        if _agent is not None:
-            result = await _agent.chat(message=req.message, session_id=req.session_id)
-            result["quote_state"] = snapshot_quote_state(req.session_id)
-        else:
-            result = await handle_message(
-                message=req.message,
-                session_id=req.session_id,
-                mode=req.mode,
-                df=state.df,
-                chemicals_df=state.chemicals_df,
-                history=history or None,
-                user_rep_id=user_rep_id,
-            )
-            result["quote_state"] = snapshot_quote_state(req.session_id)
+        result = await _route_chat(req, history, user_rep_id)
     except Exception as e:
         logger.error(f"Stream chat error: {e}", exc_info=True)
         yield _sse_event("error", {"error": "Something went wrong. Try again or contact Enpro directly.", "detail": str(e)})

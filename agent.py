@@ -212,10 +212,77 @@ class EnproAgent:
         else:
             return json.dumps({"error": f"Unknown tool: {name}"})
 
+    def _build_pregame_context_message(self, session_id: str) -> Optional[dict]:
+        """
+        If this session has cached pregame context, return a system-level
+        message that injects Turn 1's candidates so the agent can answer
+        follow-ups without re-searching. Returns None if no cache.
+        """
+        try:
+            from context_store import get_context
+        except ImportError:
+            return None
+
+        ctx = get_context(session_id)
+        if not ctx or ctx.get("intent") != "pregame":
+            return None
+
+        candidates = ctx.get("candidates", [])
+        if not candidates:
+            return None
+
+        application = ctx.get("application", "unknown")
+        customer_ctx = ctx.get("customer_context", "")
+
+        lines = []
+        for p in candidates[:10]:
+            pn = p.get("Part_Number", "?")
+            mfr = p.get("Manufacturer") or p.get("Final_Manufacturer") or ""
+            desc = (p.get("Description") or "")[:40]
+            micron = p.get("Micron", "")
+            media = p.get("Media", "")
+            price = p.get("Price", "")
+            stock_dict = p.get("Stock", {}) or {}
+            stock_str = ", ".join(f"{k}:{v}" for k, v in stock_dict.items() if isinstance(v, (int, float)))
+            if not stock_str:
+                stock_str = "OOS"
+            bits = [pn]
+            if mfr: bits.append(f"mfr={mfr}")
+            if desc: bits.append(f"desc='{desc}'")
+            if micron: bits.append(f"{micron}um")
+            if media: bits.append(f"media={media}")
+            if price: bits.append(f"price={price}")
+            bits.append(f"stock={stock_str}")
+            lines.append("- " + " | ".join(bits))
+        candidate_block = "\n".join(lines) if lines else "(none)"
+
+        return {
+            "role": "system",
+            "content": f"""[PREGAME CONTEXT — Turn 1 of this session]
+
+The user opened a pregame conversation for {application} with this request:
+"{customer_ctx}"
+
+These candidate parts were fetched and presented on Turn 1:
+{candidate_block}
+
+For follow-up questions in this session:
+- REFERENCE these specific candidates by part number. Don't re-search unless the user asks for something genuinely new.
+- "Those" / "the top two" / "the first one" → means candidates above, in order.
+- Micron / price / stock / supplier questions → pull from the data above.
+- Comparisons → use only the data above, don't invent specs.
+- If a field is missing above, say "not in catalog" — never guess.
+""",
+        }
+
     async def chat(self, message: str, session_id: str = "default") -> dict:
         """
         Send a message to the agent and get a response.
         Handles tool calls automatically in a loop.
+
+        If this session has cached pregame context (from run_pregame_pipeline),
+        injects it as a system message so the agent can answer follow-ups using
+        the Turn 1 candidates without re-searching.
 
         Returns dict with 'response', 'intent', 'cost', 'products'.
         """
@@ -224,8 +291,13 @@ class EnproAgent:
         # Add user message to thread
         thread.append({"role": "user", "content": message})
 
-        # Build messages: system + conversation history
-        messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}] + thread[-20:]  # Last 20 messages
+        # Build messages: system + (optional pregame context) + conversation history
+        messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+        pregame_ctx_msg = self._build_pregame_context_message(session_id)
+        if pregame_ctx_msg:
+            messages.append(pregame_ctx_msg)
+            logger.info(f"[gpt agent] injecting pregame context for session {session_id[:12]}")
+        messages.extend(thread[-20:])
 
         # Collect products from tool calls for the response
         all_products = []

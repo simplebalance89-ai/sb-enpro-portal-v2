@@ -136,9 +136,14 @@ class EnproClaudeAgent:
         else:
             return json.dumps({"error": f"Unknown tool: {name}"})
 
-    async def _call_claude(self, messages: list[dict]) -> dict:
+    async def _call_claude(self, messages: list[dict], system_prompt: Optional[str] = None) -> dict:
         """
         Make a single call to Anthropic's messages API.
+
+        Args:
+            messages: conversation history in Anthropic format
+            system_prompt: optional override of the default AGENT_SYSTEM_PROMPT
+                           (used to inject pregame context when available)
 
         Returns the raw response dict.
         """
@@ -150,7 +155,7 @@ class EnproClaudeAgent:
         body = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": AGENT_SYSTEM_PROMPT,
+            "system": system_prompt or AGENT_SYSTEM_PROMPT,
             "tools": self.anthropic_tools,
             "messages": messages,
         }
@@ -160,10 +165,83 @@ class EnproClaudeAgent:
                 raise RuntimeError(f"Anthropic API error {resp.status_code}: {resp.text[:500]}")
             return resp.json()
 
+    def _build_pregame_system_prompt(self, session_id: str) -> Optional[str]:
+        """
+        If this session has cached pregame context, return an augmented system
+        prompt that includes the Turn 1 candidates and application bucket so the
+        agent can answer follow-ups without re-searching.
+
+        Returns None if no cached context exists (caller uses default system prompt).
+        """
+        try:
+            from context_store import get_context
+        except ImportError:
+            return None
+
+        ctx = get_context(session_id)
+        if not ctx or ctx.get("intent") != "pregame":
+            return None
+
+        candidates = ctx.get("candidates", [])
+        if not candidates:
+            return None
+
+        application = ctx.get("application", "unknown")
+        customer_ctx = ctx.get("customer_context", "")
+
+        # Build a compact candidate summary — part number, manufacturer, key specs,
+        # stock, price. Keep under ~1500 tokens to not blow the context window.
+        lines = []
+        for p in candidates[:10]:
+            pn = p.get("Part_Number", "?")
+            mfr = p.get("Manufacturer") or p.get("Final_Manufacturer") or ""
+            desc = (p.get("Description") or "")[:40]
+            micron = p.get("Micron", "")
+            media = p.get("Media", "")
+            price = p.get("Price", "")
+            stock_dict = p.get("Stock", {}) or {}
+            stock_str = ", ".join(f"{k}:{v}" for k, v in stock_dict.items() if isinstance(v, (int, float)))
+            if not stock_str:
+                stock_str = "OOS"
+            bits = [pn]
+            if mfr: bits.append(f"mfr={mfr}")
+            if desc: bits.append(f"desc='{desc}'")
+            if micron: bits.append(f"{micron}µm")
+            if media: bits.append(f"media={media}")
+            if price: bits.append(f"price={price}")
+            bits.append(f"stock={stock_str}")
+            lines.append("- " + " | ".join(bits))
+
+        candidate_block = "\n".join(lines) if lines else "(none)"
+
+        augmented = AGENT_SYSTEM_PROMPT + f"""
+
+## PREGAME CONTEXT (from this session's Turn 1)
+
+The user already opened a pregame conversation for **{application}** with this context:
+"{customer_ctx}"
+
+These candidate parts were fetched and presented on Turn 1:
+{candidate_block}
+
+Your job for follow-up questions in this session:
+- REFERENCE these specific candidates by part number. Do not re-search unless the user asks for something genuinely new.
+- When they ask about "those" / "those parts" / "the top two" — it means the candidates above, in order.
+- When they ask for micron / price / stock / supplier — pull it from the candidate data above.
+- When they ask for comparisons — use the data above, do not invent specs not listed.
+- If a field is missing from the data above, say "not in catalog" — never guess.
+- You may still call tools (search_catalog, lookup_part, check_chemical) when the user asks for genuinely new information, but for follow-ups on the existing candidates, use the data above directly.
+"""
+        return augmented
+
     async def chat(self, message: str, session_id: str = "default") -> dict:
         """
         Send a message to Claude and get a response.
         Handles tool calls automatically in a loop.
+
+        If this session has cached pregame context (from run_pregame_pipeline),
+        injects it into the system prompt so Claude can answer follow-ups using
+        the Turn 1 candidates without re-searching.
 
         Returns dict with 'response', 'intent', 'cost', 'products', 'structured'.
         """
@@ -175,13 +253,21 @@ class EnproClaudeAgent:
         # Trim thread to last 20 messages to keep context reasonable
         messages = thread[-20:]
 
+        # Check for cached pregame context — if present, build an augmented
+        # system prompt that includes Turn 1's candidates. This is the fix
+        # for Q2 ("micron rating on those") and Q4 ("more parts from that supplier")
+        # failing when Turn 2 phrase matching misses.
+        augmented_system = self._build_pregame_system_prompt(session_id)
+        if augmented_system:
+            logger.info(f"[claude agent] injecting pregame context for session {session_id[:12]}")
+
         all_products = []
         tool_call_count = 0
         max_tool_rounds = 15
 
         while tool_call_count < max_tool_rounds:
             try:
-                response = await self._call_claude(messages)
+                response = await self._call_claude(messages, system_prompt=augmented_system)
             except Exception as e:
                 logger.error(f"Claude API call failed: {e}")
                 error_msg = "Something went wrong. Try again or contact Enpro directly."

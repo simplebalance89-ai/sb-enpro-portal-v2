@@ -82,15 +82,34 @@ def step2_fetch_candidates(
 ) -> list[dict[str, Any]]:
     """
     Deterministic pandas query: parts in the given Application bucket,
-    filtered to OK-FILTRATION + ACTIVE + in-stock, sorted by stock priority.
-    Returns list of product dicts (raw columns + formatted).
+    narrowed by John's expert rules (kb/application_filters.py) BEFORE any
+    LLM fires, then sorted by stock + activity priority.
+
+    Flow:
+      1. Apply John's strict rules (preferred_manufacturers + media + micron_range)
+      2. If strict returns zero → fall back to loose rules (micron only)
+      3. If still zero → fall back to just Application + OK-FILTRATION
+      4. Sort by activity + stock priority
+
+    This narrows "200 F&B parts" down to "15 Filtrox cellulose depth sheets
+    in 0.45-1.0 µm range" BEFORE Claude ever sees data.
+
+    Returns list of formatted product dicts.
     """
     if df.empty:
         return []
 
+    # Load John's expert rules for this bucket
+    try:
+        from kb.application_filters import get_filter_rules
+        rules = get_filter_rules(application_bucket)
+    except Exception as e:
+        logger.warning(f"[step2] failed to load filter rules: {e}")
+        rules = {}
+
     matches = df.copy()
 
-    # Mandatory filter 1: Item_Category = OK-FILTRATION
+    # Mandatory filter 1: Item_Category = OK-FILTRATION (89.6% of catalog)
     if "Item_Category" in matches.columns:
         matches = matches[matches["Item_Category"].astype(str).str.upper() == "OK-FILTRATION"]
 
@@ -100,7 +119,63 @@ def step2_fetch_candidates(
         matches = matches[matches["Application"].astype(str).str.lower().str.strip() == app_norm]
 
     if matches.empty:
+        logger.info(f"[step2] no parts for Application='{application_bucket}' + OK-FILTRATION")
         return []
+
+    # Save the loose baseline in case the strict filter empties everything
+    loose_baseline = matches.copy()
+    pre_strict_count = len(matches)
+
+    # --- STRICT FILTER: John's expert rules narrow the candidate set ---
+
+    # Preferred manufacturers (Filtrox for brewery, Pall for pharma, etc.)
+    if rules.get("preferred_manufacturers"):
+        pref_mfrs = [m.strip().lower() for m in rules["preferred_manufacturers"]]
+        mfr_cols = [c for c in ("Manufacturer", "Final_Manufacturer") if c in matches.columns]
+        if mfr_cols:
+            mask = pd.Series(False, index=matches.index)
+            for col in mfr_cols:
+                col_lower = matches[col].astype(str).str.lower().str.strip()
+                for mfr in pref_mfrs:
+                    # Substring match (handles "Pall Corporation" matching "Pall")
+                    mask = mask | col_lower.str.contains(mfr, na=False, regex=False)
+            narrowed = matches[mask]
+            if not narrowed.empty:
+                matches = narrowed
+                logger.info(f"[step2] manufacturer filter: {pre_strict_count} → {len(matches)}")
+
+    # Preferred media types
+    if rules.get("preferred_media") and "Media" in matches.columns:
+        pref_media = [m.strip().lower() for m in rules["preferred_media"]]
+        col_lower = matches["Media"].astype(str).str.lower().str.strip()
+        mask = pd.Series(False, index=matches.index)
+        for med in pref_media:
+            mask = mask | col_lower.str.contains(med, na=False, regex=False)
+        narrowed = matches[mask]
+        if not narrowed.empty:
+            matches = narrowed
+            logger.info(f"[step2] media filter → {len(matches)}")
+
+    # Micron range (strict spec window from John)
+    if rules.get("micron_range") and "Micron" in matches.columns:
+        lo, hi = rules["micron_range"]
+        micron_numeric = pd.to_numeric(matches["Micron"], errors="coerce")
+        narrowed = matches[(micron_numeric >= lo) & (micron_numeric <= hi)]
+        if not narrowed.empty:
+            matches = narrowed
+            logger.info(f"[step2] micron range {lo}-{hi} → {len(matches)}")
+
+    # --- FALLBACK: If strict narrowing emptied the set, try loose micron range ---
+    if matches.empty and rules.get("fallback_micron_range") and "Micron" in loose_baseline.columns:
+        lo, hi = rules["fallback_micron_range"]
+        micron_numeric = pd.to_numeric(loose_baseline["Micron"], errors="coerce")
+        matches = loose_baseline[(micron_numeric >= lo) & (micron_numeric <= hi)]
+        logger.info(f"[step2] fallback to loose micron {lo}-{hi} → {len(matches)}")
+
+    # --- FINAL FALLBACK: Just the baseline (Application + OK-FILTRATION) ---
+    if matches.empty:
+        matches = loose_baseline
+        logger.info(f"[step2] final fallback to loose baseline → {len(matches)}")
 
     # Priority filter: prefer ACTIVE, prefer in-stock
     if "Activity_Flag" in matches.columns:
@@ -396,16 +471,56 @@ async def run_pregame_pipeline(
 # ---------------------------------------------------------------------------
 
 # User phrase → branch key mapping for Turn 2+ cache lookups.
-# Deterministic, case-insensitive substring match.
+# Deterministic, case-insensitive substring match. Order matters — first match wins.
+# Expanded 2026-04-11 to cover spec/price/stock/supplier follow-ups that
+# previously fell through to the agent with no context.
 TURN2_BRANCH_MAP = [
-    (["top pick", "top 3", "best pick", "best fit", "recommend"], "top_picks"),
-    (["compare the top", "compare those", "compare the first", "side by side", "compare them"], "compare_top_2"),
-    (["pregame", "summary", "brief me", "prep me", "walk me through"], "pregame_summary"),
-    (["questions", "what to ask", "what should i ask", "what do i ask"], "questions_to_ask"),
-    (["alternative", "alternatives", "other option", "backup", "substitute"], "alternatives"),
-    (["risk", "flag", "concern", "warning", "watch out"], "risk_flags"),
-    (["cross sell", "cross-sell", "pair with", "goes with", "upsell"], "cross_sell"),
-    (["what's next", "whats next", "next question"], "scenario_next"),
+    # Comparison (keep first — "compare" is unambiguous)
+    (["compare the top", "compare those", "compare the first", "side by side",
+      "compare them", "compare it", "which is better", "pros and cons"], "compare_top_2"),
+
+    # Top picks / recommendations
+    (["top pick", "top 3", "best pick", "best fit", "which should i lead with",
+      "which should i recommend", "recommend"], "top_picks"),
+
+    # Spec follow-ups (micron, temp, pressure, flow) — reuse top_picks which
+    # already has specs in the JSON output
+    (["micron", "micron rating", "spec", "specs", "specifications",
+      "flow rate", "temperature", "temp", "psi", "max pressure", "details",
+      "detail"], "top_picks"),
+
+    # Price follow-ups — reuse top_picks (already includes prices)
+    (["price", "prices", "pricing", "cost", "how much", "what do they cost"], "top_picks"),
+
+    # Stock / warehouse follow-ups — reuse top_picks (already includes stock)
+    (["in stock", "stock", "available", "houston", "kansas city", "charlotte",
+      "warehouse", "location", "where are they", "any stock"], "top_picks"),
+
+    # Alternatives / supplier / "more of the same"
+    (["alternative", "alternatives", "other option", "other options", "backup",
+      "substitute", "other brand", "other brands", "other manufacturer",
+      "more parts", "more from", "from that supplier", "from that manufacturer",
+      "same supplier", "same manufacturer"], "alternatives"),
+
+    # Pregame summary / briefing
+    (["pregame", "summary", "brief me", "prep me", "walk me through",
+      "recap", "overview"], "pregame_summary"),
+
+    # Questions to ask
+    (["questions", "what to ask", "what should i ask", "what do i ask",
+      "prepare me", "what should i know", "what else"], "questions_to_ask"),
+
+    # Risk flags / concerns / escalation
+    (["risk", "flag", "concern", "warning", "watch out", "red flag",
+      "anything to worry", "escalation", "safety"], "risk_flags"),
+
+    # Cross-sell / pairing
+    (["cross sell", "cross-sell", "pair with", "goes with", "upsell",
+      "what goes with", "related products", "housing", "what else do they need"], "cross_sell"),
+
+    # Next likely questions
+    (["what's next", "whats next", "next question", "what comes after",
+      "anything else i should ask"], "scenario_next"),
 ]
 
 
