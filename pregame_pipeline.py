@@ -23,7 +23,7 @@ from typing import Any, Optional
 import httpx
 import pandas as pd
 
-from pregame_prompts import PROMPTS, build_full_prompt
+from pregame_prompts import TOOLS, build_user_message, render_branch
 from context_store import set_context, get_context
 from governance import run_pre_checks
 
@@ -337,32 +337,56 @@ async def _call_claude(
     model: str = DEFAULT_MODEL,
     max_tokens: int = 2048,
     timeout: int = 60,
-) -> str:
-    """One Anthropic API call. Returns the text content or empty string on failure."""
+    tool: Optional[dict] = None,
+):
+    """
+    One Anthropic API call.
+
+    If tool is None, returns the text content as a string (legacy path).
+    If tool is provided, forces tool_choice to that tool and returns the parsed
+    tool_input dict — the schema is enforced by the Anthropic API, not by
+    parsing prose on our side. Returns empty string / empty dict on failure.
+    """
     headers = {
         "x-api-key": api_key,
         "anthropic-version": ANTHROPIC_API_VERSION,
         "content-type": "application/json",
     }
-    body = {
+    body: dict = {
         "model": model,
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if tool:
+        body["tools"] = [tool]
+        body["tool_choice"] = {"type": "tool", "name": tool["name"]}
+
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(ANTHROPIC_API_URL, headers=headers, json=body)
             if resp.status_code != 200:
                 logger.warning(f"Claude API {resp.status_code}: {resp.text[:200]}")
-                return ""
+                return {} if tool else ""
             data = resp.json()
-            for block in data.get("content", []):
+            content = data.get("content", []) or []
+            if tool:
+                # Find the tool_use block matching our forced tool name
+                for block in content:
+                    if block.get("type") == "tool_use" and block.get("name") == tool["name"]:
+                        tool_input = block.get("input")
+                        return tool_input if isinstance(tool_input, dict) else {}
+                logger.warning(
+                    f"Claude returned no tool_use block for {tool['name']}: "
+                    f"stop_reason={data.get('stop_reason')}"
+                )
+                return {}
+            for block in content:
                 if block.get("type") == "text":
                     return block.get("text", "")
             return ""
     except Exception as e:
         logger.warning(f"Claude call failed: {e}")
-        return ""
+        return {} if tool else ""
 
 
 async def step3_parallel_reason(
@@ -414,18 +438,29 @@ async def step3_parallel_reason(
             candidates=candidates,
         )
 
-        prompt = build_full_prompt(branch_key=key, **ctx)
-        if not prompt:
+        prompt = build_user_message(branch_key=key, **ctx)
+        tool = TOOLS.get(key)
+        if not prompt or not tool:
             return (key, "")
 
-        result = await _call_claude(
+        # Force structured output via tool_choice. Schema in pregame_prompts.TOOLS
+        # is enforced by the Anthropic API — no prose JSON parsing on our side.
+        tool_input = await _call_claude(
             prompt,
             api_key=api_key,
             model=branch_model,
             max_tokens=max_tokens,
+            tool=tool,
         )
-        logger.info(f"  branch[{key}] via {branch_model} ({slice_name}) → {len(result)} chars")
-        return (key, result)
+        # Render the structured dict into a human-readable string so downstream
+        # Turn 2 cache hits and Turn 1 display keep working unchanged.
+        rendered = render_branch(key, tool_input) if isinstance(tool_input, dict) else ""
+        keys_count = len(tool_input) if isinstance(tool_input, dict) else 0
+        logger.info(
+            f"  branch[{key}] via {branch_model} ({slice_name}) → "
+            f"tool_input={keys_count} keys, rendered={len(rendered)} chars"
+        )
+        return (key, rendered)
 
     tasks = [_fire_branch(i, key) for i, key in enumerate(branch_keys)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -542,7 +577,7 @@ async def run_pregame_pipeline(
         }
 
     # Step 3 — Parallel reasoning (8 branches)
-    all_branches = list(PROMPTS.keys())
+    all_branches = list(TOOLS.keys())
     reasoning = await step3_parallel_reason(
         branch_keys=all_branches,
         customer_context=customer_context or user_message,
