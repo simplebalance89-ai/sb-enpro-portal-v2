@@ -644,9 +644,9 @@
             case 'other':
                 if (data.products && data.products.length > 0) {
                     appendMessage('bot', '<span style="color:#666;font-size:13px;">Other options:</span>');
-                    data.products.forEach(function (p) {
-                        appendCard(renderProductCard(p));
-                    });
+                    // Use the batched grid renderer so multi-product responses
+                    // land as a 2-up grid instead of one card per row.
+                    renderProductsBatched(data.products);
                     scrollToBottom();
                 }
                 break;

@@ -700,8 +700,13 @@ async def _chat_stream_generator(request: Request, req: ChatRequest):
     else:
         # Legacy plain-text path
         yield _sse_event("body", {"text": result.get("response", "")})
-        for p in (result.get("products") or [])[:5]:
-            yield _sse_event("other", {"products": [p]})
+        # Batch all products into a single "other" event so the frontend can
+        # render them in a 2-up grid. Previously we yielded one event per
+        # product which caused the "Other options:" label to repeat and the
+        # cards to render one-per-row.
+        other_products = (result.get("products") or [])[:5]
+        if other_products:
+            yield _sse_event("other", {"products": other_products})
 
     # Terminal event
     yield _sse_event("done", {
