@@ -196,6 +196,23 @@
             40% { transform: scale(1); opacity: 1; }
         }
 
+        /* ── Product Card Grid (V2.17: 2-up for multi-product responses) ── */
+        .product-card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin: 4px 0;
+            max-width: 100%;
+        }
+        .product-card-grid .product-card {
+            margin: 0; /* grid handles spacing */
+        }
+        @media (max-width: 720px) {
+            .product-card-grid {
+                grid-template-columns: 1fr; /* stack on narrow screens */
+            }
+        }
+
         /* ── Product Card ── */
         .product-card {
             background: var(--card-bg);

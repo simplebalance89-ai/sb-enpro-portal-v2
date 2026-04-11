@@ -1048,14 +1048,21 @@
         scrollToBottom();
     };
 
-    // ── Render products: 1 card if single, consolidated card if multiple ──
+    // ── Render products: 1 card if single, 2-up grid of full cards if multiple ──
     async function renderProductsBatched(products) {
         if (products.length === 1) {
             // Single result — full product card
             appendCard(renderProductCard(products[0]), false);
         } else if (products.length > 1) {
-            // Multiple results — consolidated card with expandable rows
-            appendCard(renderConsolidatedCard(products), true);
+            // Multiple results — render each as a full card inside a 2-column grid
+            // (V2.17: replaced renderConsolidatedCard with full cards per Peter's
+            // feedback. Compare-style side-by-side for all multi-product responses.)
+            var gridHtml = '<div class="product-card-grid">';
+            products.forEach(function (p) {
+                gridHtml += renderProductCard(p);
+            });
+            gridHtml += '</div>';
+            appendCard(gridHtml, false);
         }
     }
 
@@ -1293,8 +1300,16 @@
         var desc = p.Description || p.description || '';
         var ext = p.Extended_Description || p.extended_description || '';
         var ptype = p.Product_Type || p.product_type || '';
-        var industry = p.Industry || p.industry || p.Application || p.application || '';
-        var mfg = p.Final_Manufacturer || p.Manufacturer || p.manufacturer || '';
+        // Application is the source of truth (9 clean buckets in static_crosswalk.Application_Final).
+        // Industry is only a fallback if no Application is present on the row.
+        var application = p.Application || p.application || p.Application_Final || p.Industry || p.industry || '';
+        // Manufacturer = clean display name (from Product_Group prefix mapping).
+        // NEVER reference Final_Manufacturer — memory says it is 41.7% wrong post-merge.
+        var mfg = p.Manufacturer_Display || p.Manufacturer || p.manufacturer || '';
+        // Supplier = P21 source of truth from inventory_live.Supplier_Name. Shown
+        // alongside Manufacturer when it differs, so the rep can see both the
+        // clean brand and who the product actually ships from.
+        var supplier = p.Supplier || p.Supplier_Name || p.supplier || '';
         var micron = p.Micron || p.micron || '';
         var media = p.Media || p.media || '';
         var tempF = p.Max_Temp_F || p.temp_rating || '';
@@ -1315,9 +1330,14 @@
         var fields = [
             ['Description', primaryDesc],
             ['Product Type', ptype],
-            ['Industry', industry],
+            ['Application', application],
             ['Manufacturer', mfg]
         ];
+        // Only show Supplier as its own row if it differs from the clean Manufacturer
+        // (otherwise it's redundant and eats card space).
+        if (supplier && supplier.toLowerCase().trim() !== (mfg || '').toLowerCase().trim()) {
+            fields.push(['Supplier', supplier]);
+        }
 
         // Specs with explicit labels (no more mystery values)
         if (micron && micron !== '0' && micron !== '0.0') {
@@ -1336,10 +1356,12 @@
                 var val = String(f[1]);
                 if (f[0] === 'Manufacturer') {
                     html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'manufacturer ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Supplier') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'supplier ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
                 } else if (f[0] === 'Product Type') {
                     html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'search ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
-                } else if (f[0] === 'Industry') {
-                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'industry ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
+                } else if (f[0] === 'Application') {
+                    html += '<div class="product-field-value"><a class="card-link" onclick="sendMessage(\'application ' + esc(val).replace(/'/g, "\\'") + '\')">' + esc(val) + '</a></div>';
                 } else if (['Micron', 'Media', 'Max Temp', 'Max PSI', 'Flow Rate', 'Efficiency', 'Last Activity'].includes(f[0])) {
                     // Spec fields already have formatting
                     html += '<div class="product-field-value">' + val + '</div>';
