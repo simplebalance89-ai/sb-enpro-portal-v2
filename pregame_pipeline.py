@@ -212,6 +212,102 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 DEFAULT_MODEL = "claude-opus-4-5"
 DELAY_BETWEEN_CALLS_MS = 100  # Space out the parallel calls slightly
 
+# Branch → model tier + context slice mapping.
+# Different branches have different reasoning needs. top_picks is the one
+# call that actually matters for Turn 1 quality (Claude Opus). Everything
+# else uses Sonnet or Haiku — faster, cheaper, same quality for the job.
+#
+# context_slice options:
+#   "full" — everything (candidates + KB + customer context)
+#   "top_candidates" — only top 5 candidates + customer context
+#   "candidates_customer" — all candidates + customer, no KB
+#   "candidates_only" — just candidates, no KB or customer
+#   "industry_only" — just the application bucket name + typical questions from KB
+#   "app_only" — just the application bucket name
+#   "customer_only" — just the customer context (for risk scan)
+BRANCH_CONFIG: dict[str, dict] = {
+    "top_picks":       {"model": "claude-opus-4-5",    "slice": "full",               "max_tokens": 2048},
+    "compare_top_2":   {"model": "claude-sonnet-4-5",  "slice": "top_candidates",     "max_tokens": 1024},
+    "pregame_summary": {"model": "claude-sonnet-4-5",  "slice": "candidates_customer","max_tokens": 1024},
+    "questions_to_ask":{"model": "claude-haiku-4-5",   "slice": "industry_only",      "max_tokens": 512},
+    "alternatives":    {"model": "claude-haiku-4-5",   "slice": "candidates_only",    "max_tokens": 1024},
+    "risk_flags":      {"model": "claude-haiku-4-5",   "slice": "customer_only",      "max_tokens": 512},
+    "cross_sell":      {"model": "claude-haiku-4-5",   "slice": "candidates_only",    "max_tokens": 512},
+    "scenario_next":   {"model": "claude-haiku-4-5",   "slice": "app_only",           "max_tokens": 512},
+}
+
+
+def _slice_context(
+    slice_name: str,
+    customer_context: str,
+    application: str,
+    kb_json: str,
+    candidates_json: str,
+    candidates: list[dict],
+) -> dict[str, str]:
+    """
+    Return only the context fields needed for this slice. Reduces tokens per call.
+    """
+    top5_json = json.dumps(candidates[:5], default=str, indent=2)
+    top2_json = json.dumps(candidates[:2], default=str, indent=2)
+
+    if slice_name == "full":
+        return {
+            "customer_context": customer_context,
+            "application": application,
+            "kb_context": kb_json,
+            "candidates_json": candidates_json,
+        }
+    if slice_name == "top_candidates":
+        return {
+            "customer_context": customer_context,
+            "application": application,
+            "kb_context": "",
+            "candidates_json": top5_json,
+        }
+    if slice_name == "candidates_customer":
+        return {
+            "customer_context": customer_context,
+            "application": application,
+            "kb_context": "",
+            "candidates_json": candidates_json,
+        }
+    if slice_name == "candidates_only":
+        return {
+            "customer_context": "",
+            "application": application,
+            "kb_context": "",
+            "candidates_json": candidates_json,
+        }
+    if slice_name == "industry_only":
+        return {
+            "customer_context": customer_context,
+            "application": application,
+            "kb_context": kb_json,
+            "candidates_json": "[]",
+        }
+    if slice_name == "customer_only":
+        return {
+            "customer_context": customer_context,
+            "application": application,
+            "kb_context": "",
+            "candidates_json": "[]",
+        }
+    if slice_name == "app_only":
+        return {
+            "customer_context": "",
+            "application": application,
+            "kb_context": "",
+            "candidates_json": "[]",
+        }
+    # Default fallback — full context
+    return {
+        "customer_context": customer_context,
+        "application": application,
+        "kb_context": kb_json,
+        "candidates_json": candidates_json,
+    }
+
 
 async def _call_claude(
     prompt: str,
@@ -254,11 +350,19 @@ async def step3_parallel_reason(
     kb_context: str,
     candidates: list[dict],
     api_key: str,
-    model: str = DEFAULT_MODEL,
+    model: str = DEFAULT_MODEL,  # fallback model if BRANCH_CONFIG misses
 ) -> dict[str, str]:
     """
     Fire N narrow reasoning prompts in parallel against Claude.
-    Each prompt gets the same candidate set but a different job.
+
+    Each branch uses its own tier (Opus / Sonnet / Haiku) and context slice
+    from BRANCH_CONFIG. top_picks gets full context on Opus because it's the
+    one call that makes or breaks Turn 1 quality. Everything else uses smaller
+    models with narrower context.
+
+    Expected Turn 1 cost: ~$0.03 (down from ~$0.16 on all-Opus).
+    Expected Turn 1 time: ~5-7s (bounded by Opus, Haiku/Sonnet finish faster).
+
     Returns dict keyed by branch_key with the model's text response.
     """
     if not api_key:
@@ -271,17 +375,34 @@ async def step3_parallel_reason(
     async def _fire_branch(idx: int, key: str) -> tuple[str, str]:
         # Stagger the calls slightly to avoid burst rate limits
         await asyncio.sleep((idx * DELAY_BETWEEN_CALLS_MS) / 1000)
-        prompt = build_full_prompt(
-            branch_key=key,
+
+        # Look up this branch's model tier and context slice
+        cfg = BRANCH_CONFIG.get(key, {})
+        branch_model = cfg.get("model", model)
+        slice_name = cfg.get("slice", "full")
+        max_tokens = cfg.get("max_tokens", 2048)
+
+        # Build narrow context for this branch's specific job
+        ctx = _slice_context(
+            slice_name=slice_name,
             customer_context=customer_context,
             application=application,
-            kb_context=kb_json,
+            kb_json=kb_json,
             candidates_json=candidates_json,
+            candidates=candidates,
         )
+
+        prompt = build_full_prompt(branch_key=key, **ctx)
         if not prompt:
             return (key, "")
-        result = await _call_claude(prompt, api_key=api_key, model=model)
-        logger.info(f"  branch[{key}] → {len(result)} chars")
+
+        result = await _call_claude(
+            prompt,
+            api_key=api_key,
+            model=branch_model,
+            max_tokens=max_tokens,
+        )
+        logger.info(f"  branch[{key}] via {branch_model} ({slice_name}) → {len(result)} chars")
         return (key, result)
 
     tasks = [_fire_branch(i, key) for i, key in enumerate(branch_keys)]
