@@ -202,7 +202,7 @@ class EnproAgent:
         # Collect products from tool calls for the response
         all_products = []
         tool_call_count = 0
-        max_tool_rounds = 5  # Prevent infinite loops
+        max_tool_rounds = 10  # Allow multiple search rounds
 
         while tool_call_count < max_tool_rounds:
             try:
