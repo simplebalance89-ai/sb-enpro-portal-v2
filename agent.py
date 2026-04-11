@@ -237,7 +237,8 @@ class EnproAgent:
         lines = []
         for p in candidates[:10]:
             pn = p.get("Part_Number", "?")
-            mfr = p.get("Manufacturer") or p.get("Final_Manufacturer") or ""
+            mfr = p.get("Manufacturer") or ""       # clean field
+            supplier = p.get("Supplier") or ""       # P21 source of truth
             desc = (p.get("Description") or "")[:40]
             micron = p.get("Micron", "")
             media = p.get("Media", "")
@@ -248,6 +249,7 @@ class EnproAgent:
                 stock_str = "OOS"
             bits = [pn]
             if mfr: bits.append(f"mfr={mfr}")
+            if supplier and supplier.lower() != mfr.lower(): bits.append(f"supplier={supplier}")
             if desc: bits.append(f"desc='{desc}'")
             if micron: bits.append(f"{micron}um")
             if media: bits.append(f"media={media}")

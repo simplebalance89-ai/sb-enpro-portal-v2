@@ -129,20 +129,19 @@ def step2_fetch_candidates(
     # --- STRICT FILTER: John's expert rules narrow the candidate set ---
 
     # Preferred manufacturers (Filtrox for brewery, Pall for pharma, etc.)
-    # Check Manufacturer, Final_Manufacturer, AND Supplier because the
-    # rebuild script's Product_Group → Manufacturer map doesn't cover every
-    # code (e.g., Filtrox parts live under a code that wasn't in the map, so
-    # their Manufacturer column is blank but Supplier_Name is "FILTROX North America Inc.").
+    # Check Manufacturer (clean, from Product_Group prefix) and Supplier (P21
+    # source of truth). Final_Manufacturer is the polluted legacy field — DO
+    # NOT reference it anywhere in new code, even as an alias fallback.
     if rules.get("preferred_manufacturers"):
         pref_mfrs = [m.strip().lower() for m in rules["preferred_manufacturers"]]
-        mfr_cols = [c for c in ("Manufacturer", "Final_Manufacturer", "Supplier") if c in matches.columns]
+        mfr_cols = [c for c in ("Manufacturer", "Supplier") if c in matches.columns]
         if mfr_cols:
             mask = pd.Series(False, index=matches.index)
             for col in mfr_cols:
                 col_lower = matches[col].astype(str).str.lower().str.strip()
                 for mfr in pref_mfrs:
-                    # Substring match (handles "Pall Corporation" matching "Pall",
-                    # "FILTROX North America Inc." matching "filtrox", etc.)
+                    # Substring match: "Pall Corporation" → "pall",
+                    # "FILTROX North America Inc." → "filtrox", etc.
                     mask = mask | col_lower.str.contains(mfr, na=False, regex=False)
             narrowed = matches[mask]
             if not narrowed.empty:
