@@ -177,7 +177,7 @@ class EnproClaudeAgent:
 
         all_products = []
         tool_call_count = 0
-        max_tool_rounds = 10
+        max_tool_rounds = 15
 
         while tool_call_count < max_tool_rounds:
             try:

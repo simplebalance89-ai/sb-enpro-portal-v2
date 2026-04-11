@@ -53,18 +53,36 @@ def _safe_json(obj: Any) -> str:
 
 def tool_search_catalog(
     df: pd.DataFrame,
-    query: str,
+    query: str = "",
     in_stock_only: bool = True,
     max_results: int = 5,
+    application: Optional[str] = None,
+    manufacturer: Optional[str] = None,
 ) -> str:
-    """Search the product catalog. Returns JSON string."""
-    result = search_products(df, query, in_stock_only=in_stock_only, max_results=max_results)
+    """Search the product catalog. Returns JSON string.
+
+    Prefer passing `application` and/or `manufacturer` for structured
+    filtering — the DataFrame is indexed on these and returns cleaner
+    results than keyword search. Use `query` only when you need to narrow
+    further by free text (e.g. 'depth sheet').
+    """
+    result = search_products(
+        df,
+        query=query,
+        in_stock_only=in_stock_only,
+        max_results=max_results,
+        application=application,
+        manufacturer=manufacturer,
+    )
     products = result.get("results", [])
     return _safe_json({
         "products": products,
         "total_found": result.get("total_found", len(products)),
         "query": query,
+        "application": application,
+        "manufacturer": manufacturer,
         "in_stock_only": in_stock_only,
+        "search_type": result.get("search_type", ""),
     })
 
 
@@ -181,13 +199,22 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_catalog",
-            "description": "Search the Enpro product catalog by application, product type, specs, or keywords. Returns matching products with part numbers, specs, pricing, and stock levels. Always use this when the user asks about products, filters, or applications.",
+            "description": "Search the Enpro product catalog. PREFER structured filters (application, manufacturer) over keyword queries — they return cleaner results. Use query only for free-text narrowing within a filtered set. Returns matching products with part numbers, specs, pricing, and stock levels. ALWAYS translate industry language to one of the 9 Application buckets BEFORE calling this: brewery/wine/spirits/dairy/beverage → 'Food & Beverage', refinery/oilfield → 'Oil & Gas', data center/HVAC operator → 'HVAC', hydraulic system/lube oil → 'Hydraulic', municipal water/RO → 'Water Treatment', sterile/biotech/pharma → 'Pharmaceutical', compressed air → 'Compressed Air', solvents/caustics/acids → 'Chemical Processing', general manufacturing → 'Industrial'.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "application": {
+                        "type": "string",
+                        "description": "Filter by Application bucket (STRONGLY PREFERRED over query). Must be one of: 'Industrial', 'Compressed Air', 'Hydraulic', 'Oil & Gas', 'Water Treatment', 'Pharmaceutical', 'HVAC', 'Chemical Processing', 'Food & Beverage'. Translate user's industry language to one of these exact strings.",
+                        "enum": ["Industrial", "Compressed Air", "Hydraulic", "Oil & Gas", "Water Treatment", "Pharmaceutical", "HVAC", "Chemical Processing", "Food & Beverage"],
+                    },
+                    "manufacturer": {
+                        "type": "string",
+                        "description": "Filter by manufacturer name (e.g., 'Pall', 'Filtrox', 'Graver', 'Parker', 'Donaldson'). Use when the user specifically names a brand.",
+                    },
                     "query": {
                         "type": "string",
-                        "description": "Search query — application name, product type, specs, or keywords. Examples: 'brewery depth sheet', '10 micron cartridge', 'Pall hydraulic filter'",
+                        "description": "Free-text keyword to narrow within a filtered set (e.g., 'depth sheet', '10 micron', 'membrane'). OPTIONAL — only use when you already have application or manufacturer set and need to narrow further. Do NOT put industry names here (use application instead).",
                     },
                     "in_stock_only": {
                         "type": "boolean",
@@ -200,7 +227,7 @@ TOOL_DEFINITIONS = [
                         "default": 5,
                     },
                 },
-                "required": ["query"],
+                "required": [],
             },
         },
     },

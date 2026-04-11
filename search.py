@@ -101,41 +101,72 @@ def _normalize_light(text: str) -> str:
 # ---------------------------------------------------------------------------
 def search_products(
     df: pd.DataFrame,
-    query: str,
+    query: str = "",
     field: Optional[str] = None,
     in_stock_only: bool = True,
     max_results: int = MAX_RESULTS,
+    application: Optional[str] = None,
+    manufacturer: Optional[str] = None,
 ) -> dict:
     """
     Search the merged product DataFrame.
 
     Args:
         df: Merged product DataFrame (static + inventory).
-        query: User search query.
+        query: User search query (optional if application/manufacturer is given).
         field: Optional specific field to search (bypasses cascade).
         in_stock_only: If True, only return products with Total_Stock > 0.
         max_results: Maximum results to return.
+        application: Optional filter by Application bucket (e.g., 'Food & Beverage',
+                     'Hydraulic', 'Pharmaceutical'). Matches static_crosswalk Application field.
+        manufacturer: Optional filter by Manufacturer (e.g., 'Pall', 'Filtrox').
+                      Matches both Manufacturer and Final_Manufacturer columns.
 
     Returns:
         dict with 'results' (list of formatted products), 'total_found' (int),
         'query' (str), 'search_type' (str).
     """
-    if df.empty or not query:
+    if df.empty:
         return {"results": [], "total_found": 0, "query": query, "search_type": "empty"}
 
-    query = query.strip()
+    query = (query or "").strip()
     norm_query = _normalize(query)
 
-    # Determine search type
-    if field and field in df.columns:
-        matches = _search_single_field(df, query, norm_query, field)
-        search_type = f"field:{field}"
-    elif _looks_like_part_number(query):
-        matches = _search_exact(df, norm_query)
-        search_type = "exact_lookup"
+    # If an application or manufacturer filter is provided, start from the full
+    # DataFrame filtered by those, THEN narrow by query if given.
+    if application or manufacturer:
+        matches = df
+        if application and "Application" in matches.columns:
+            app_norm = str(application).strip().lower()
+            matches = matches[matches["Application"].astype(str).str.lower().str.strip() == app_norm]
+        if manufacturer and not matches.empty:
+            mfr_norm = str(manufacturer).strip().lower()
+            mfr_cols = [c for c in ("Manufacturer", "Final_Manufacturer") if c in matches.columns]
+            if mfr_cols:
+                mask = pd.Series(False, index=matches.index)
+                for col in mfr_cols:
+                    mask = mask | matches[col].astype(str).str.lower().str.contains(mfr_norm, na=False)
+                matches = matches[mask]
+        # If query also given, narrow further by keyword cascade within the filtered set
+        if query and not matches.empty:
+            narrowed = _search_cascade(matches, query, norm_query)
+            if not narrowed.empty:
+                matches = narrowed
+        search_type = f"filtered:app={application or '-'}:mfr={manufacturer or '-'}"
+    elif query:
+        # No structured filter — fall back to keyword/part-number search
+        if field and field in df.columns:
+            matches = _search_single_field(df, query, norm_query, field)
+            search_type = f"field:{field}"
+        elif _looks_like_part_number(query):
+            matches = _search_exact(df, norm_query)
+            search_type = "exact_lookup"
+        else:
+            matches = _search_cascade(df, query, norm_query)
+            search_type = "cascade"
     else:
-        matches = _search_cascade(df, query, norm_query)
-        search_type = "cascade"
+        # No query, no filter — nothing to search
+        return {"results": [], "total_found": 0, "query": "", "search_type": "empty"}
 
     # Stock filter
     if in_stock_only and "Total_Stock" in matches.columns and not matches.empty:
