@@ -835,15 +835,22 @@ async def handle_message(
     # --- Coreference upgrade ---
     # If the user is referring to prior turns ("compare those", "the second one",
     # "what about that part?", "yes") and we have history, the conversational
-    # answer lives in GPT with full context — not a fresh pandas lookup or a
-    # canned scripted reply. Applies to PANDAS and SCRIPTED intents (so a
-    # bare "yes" confirming a prior offer doesn't get short-circuited into
-    # the QUOTE_READY canned response).
-    if history and _has_coreference(message) and intent in (PANDAS_INTENTS | SCRIPTED_INTENTS):
+    # --- Context-aware routing ---
+    # When we have conversation history, route through GPT so the model can
+    # use prior context. The Pandas path is $0 but stateless — it can't
+    # reference products from earlier turns. GPT costs ~$0.02 but carries
+    # the full conversation. Worth it to avoid "dementia."
+    if history and intent in PANDAS_INTENTS:
+        logger.info(f"History present — routing {intent} through GPT for context continuity")
+        return await _handle_gpt(message, intent, df, chemicals_df, history, advisory, user_rep_id=user_rep_id)
+
+    # Scripted confirmations also need GPT when there's history (bare "yes"
+    # confirming a prior offer shouldn't get a canned response).
+    if history and _has_coreference(message) and intent in SCRIPTED_INTENTS:
         logger.info(f"Coreference detected in '{message[:60]}' — upgrading {intent} → general (GPT with history)")
         return await _handle_gpt(message, "general", df, chemicals_df, history, advisory, user_rep_id=user_rep_id)
 
-    # --- Route to handler ---
+    # --- Route to handler (no history — stateless paths are fine) ---
     if intent in SCRIPTED_INTENTS:
         return {
             "response": SCRIPTED_RESPONSES[intent],
