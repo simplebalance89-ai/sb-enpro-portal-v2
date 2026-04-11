@@ -1,0 +1,449 @@
+"""
+Pregame Pipeline — the Edge Crew pattern for filtration pregame.
+
+Flow:
+  Step 1 — Knowledge lookup (pandas, no LLM)
+  Step 2 — Candidate fetch (pandas, no LLM)
+  Step 3 — Parallel reasoning (8 narrow prompts, fired with delay offsets)
+  Step 4 — Aggregate + grade
+  Step 5 — Gatekeeper (governance.py rules)
+  Step 6 — Return Turn 1 answer + cache other branches
+
+Pattern: Peter's v2.13 Voice Echo + Edge Crew v3 crowdsource_grade.
+Proven 18 for 18 on NBA picks. Same shape, different domain.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import time
+from typing import Any, Optional
+
+import httpx
+import pandas as pd
+
+from pregame_prompts import PROMPTS, build_full_prompt
+from context_store import set_context, get_context
+from governance import run_pre_checks
+
+logger = logging.getLogger("enpro.pregame_pipeline")
+
+
+# ---------------------------------------------------------------------------
+# STEP 1 — Knowledge lookup
+# ---------------------------------------------------------------------------
+
+_KB_CACHE: dict[str, Any] = {}
+
+
+def _load_kb() -> dict[str, Any]:
+    """Load kb/filtration_reference.json once at module init."""
+    if _KB_CACHE:
+        return _KB_CACHE
+    kb_path = os.path.join(os.path.dirname(__file__), "kb", "filtration_reference.json")
+    if not os.path.exists(kb_path):
+        logger.warning(f"KB file not found: {kb_path}")
+        return {}
+    try:
+        with open(kb_path, "r", encoding="utf-8") as f:
+            _KB_CACHE.update(json.load(f))
+        logger.info(f"Loaded filtration_reference.json: {len(_KB_CACHE)} top-level keys")
+    except Exception as e:
+        logger.error(f"Failed to load KB: {e}")
+    return _KB_CACHE
+
+
+def step1_knowledge(application_bucket: str) -> dict[str, Any]:
+    """
+    Pull John's KB entry for this Application bucket.
+    Returns a dict with title, typical_specs, recommended_products, etc.
+    No LLM. Pure lookup.
+    """
+    kb = _load_kb()
+    bucket_key = f"application:{application_bucket.lower().replace(' & ', '_').replace(' ', '_')}"
+    # Common alias mappings
+    aliases = {
+        "application:food_&_beverage": "application:food_beverage",
+        "application:oil_&_gas": "application:oil_gas",
+    }
+    bucket_key = aliases.get(bucket_key, bucket_key)
+    return kb.get(bucket_key, {})
+
+
+# ---------------------------------------------------------------------------
+# STEP 2 — Candidate fetch (pandas, no LLM)
+# ---------------------------------------------------------------------------
+
+def step2_fetch_candidates(
+    df: pd.DataFrame,
+    application_bucket: str,
+    max_results: int = 15,
+) -> list[dict[str, Any]]:
+    """
+    Deterministic pandas query: parts in the given Application bucket,
+    filtered to OK-FILTRATION + ACTIVE + in-stock, sorted by stock priority.
+    Returns list of product dicts (raw columns + formatted).
+    """
+    if df.empty:
+        return []
+
+    matches = df.copy()
+
+    # Mandatory filter 1: Item_Category = OK-FILTRATION
+    if "Item_Category" in matches.columns:
+        matches = matches[matches["Item_Category"].astype(str).str.upper() == "OK-FILTRATION"]
+
+    # Mandatory filter 2: Application bucket match
+    if "Application" in matches.columns:
+        app_norm = application_bucket.strip().lower()
+        matches = matches[matches["Application"].astype(str).str.lower().str.strip() == app_norm]
+
+    if matches.empty:
+        return []
+
+    # Priority filter: prefer ACTIVE, prefer in-stock
+    if "Activity_Flag" in matches.columns:
+        # Active first, then others
+        matches = matches.copy()
+        matches["_is_active"] = (matches["Activity_Flag"].astype(str).str.upper() == "ACTIVE").astype(int)
+    else:
+        matches["_is_active"] = 0
+
+    if "Total_Stock" in matches.columns:
+        matches["_in_stock"] = (pd.to_numeric(matches["Total_Stock"], errors="coerce").fillna(0) > 0).astype(int)
+        matches["_stock_qty"] = pd.to_numeric(matches["Total_Stock"], errors="coerce").fillna(0)
+    else:
+        matches["_in_stock"] = 0
+        matches["_stock_qty"] = 0
+
+    matches = matches.sort_values(
+        by=["_is_active", "_in_stock", "_stock_qty"],
+        ascending=[False, False, False],
+    )
+    matches = matches.drop(columns=["_is_active", "_in_stock", "_stock_qty"])
+
+    # Format via search.format_product for clean output
+    from search import format_product
+    return [format_product(row) for _, row in matches.head(max_results).iterrows()]
+
+
+# ---------------------------------------------------------------------------
+# STEP 3 — Parallel reasoning (Anthropic API)
+# ---------------------------------------------------------------------------
+
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_VERSION = "2023-06-01"
+DEFAULT_MODEL = "claude-opus-4-5"
+DELAY_BETWEEN_CALLS_MS = 100  # Space out the parallel calls slightly
+
+
+async def _call_claude(
+    prompt: str,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 2048,
+    timeout: int = 60,
+) -> str:
+    """One Anthropic API call. Returns the text content or empty string on failure."""
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_API_VERSION,
+        "content-type": "application/json",
+    }
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(ANTHROPIC_API_URL, headers=headers, json=body)
+            if resp.status_code != 200:
+                logger.warning(f"Claude API {resp.status_code}: {resp.text[:200]}")
+                return ""
+            data = resp.json()
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    return block.get("text", "")
+            return ""
+    except Exception as e:
+        logger.warning(f"Claude call failed: {e}")
+        return ""
+
+
+async def step3_parallel_reason(
+    branch_keys: list[str],
+    customer_context: str,
+    application: str,
+    kb_context: str,
+    candidates: list[dict],
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+) -> dict[str, str]:
+    """
+    Fire N narrow reasoning prompts in parallel against Claude.
+    Each prompt gets the same candidate set but a different job.
+    Returns dict keyed by branch_key with the model's text response.
+    """
+    if not api_key:
+        logger.warning("No ANTHROPIC_API_KEY — skipping parallel reasoning")
+        return {}
+
+    candidates_json = json.dumps(candidates[:10], default=str, indent=2)
+    kb_json = json.dumps(kb_context, default=str, indent=2) if isinstance(kb_context, (dict, list)) else str(kb_context)
+
+    async def _fire_branch(idx: int, key: str) -> tuple[str, str]:
+        # Stagger the calls slightly to avoid burst rate limits
+        await asyncio.sleep((idx * DELAY_BETWEEN_CALLS_MS) / 1000)
+        prompt = build_full_prompt(
+            branch_key=key,
+            customer_context=customer_context,
+            application=application,
+            kb_context=kb_json,
+            candidates_json=candidates_json,
+        )
+        if not prompt:
+            return (key, "")
+        result = await _call_claude(prompt, api_key=api_key, model=model)
+        logger.info(f"  branch[{key}] → {len(result)} chars")
+        return (key, result)
+
+    tasks = [_fire_branch(i, key) for i, key in enumerate(branch_keys)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output: dict[str, str] = {}
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning(f"Branch exception: {result}")
+            continue
+        key, text = result
+        if text:
+            output[key] = text
+    return output
+
+
+# ---------------------------------------------------------------------------
+# STEP 4 — Aggregate (simple — just collect, no cross-model grading yet)
+# ---------------------------------------------------------------------------
+
+def step4_aggregate(reasoning_results: dict[str, str]) -> dict[str, Any]:
+    """
+    Collect the 8 parallel outputs. For now this is a straight pass-through.
+    Future: add cross-branch grading when we introduce a second model to vote.
+    """
+    return {
+        "branches_completed": list(reasoning_results.keys()),
+        "branches_count": len(reasoning_results),
+        "results": reasoning_results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# STEP 5 — Gatekeeper (rule check)
+# ---------------------------------------------------------------------------
+
+def step5_gatekeeper(customer_context: str, application: str) -> dict[str, Any]:
+    """
+    Run governance.py pre-checks against the customer context to catch
+    escalation triggers (>400F, >150 PSI, H2S, etc.) before presenting.
+    """
+    check = run_pre_checks(customer_context) if customer_context else None
+    if check and check.get("intercepted"):
+        return {
+            "safe": False,
+            "escalation_reason": check.get("check", ""),
+            "response": check.get("response", ""),
+            "trigger": check.get("trigger", ""),
+        }
+    if check and check.get("advisory"):
+        return {"safe": True, "advisory": check.get("advisory", "")}
+    return {"safe": True}
+
+
+# ---------------------------------------------------------------------------
+# STEP 6 — Orchestrator: run the whole pipeline
+# ---------------------------------------------------------------------------
+
+async def run_pregame_pipeline(
+    df: pd.DataFrame,
+    session_id: str,
+    user_message: str,
+    application_bucket: str,
+    customer_context: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Full pregame pipeline. Returns the Turn 1 user-facing answer AND caches
+    all 8 branch results in context_store keyed by session_id.
+
+    Args:
+        df: merged product DataFrame
+        session_id: session key for context_store
+        user_message: the user's Turn 1 message
+        application_bucket: one of the 9 Application buckets
+        customer_context: optional customer details if known
+        api_key: Anthropic API key (reads env var if not set)
+        model: Claude model name
+
+    Returns:
+        dict with:
+          response: the Turn 1 answer text (for immediate return to user)
+          products: the candidate set (for product card rendering)
+          intent: "pregame"
+          cost: estimate
+          context_key: session_id for future retrieval
+    """
+    start_time = time.time()
+    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    model = model or os.environ.get("AZURE_AGENT_DEPLOYMENT", DEFAULT_MODEL)
+    if not model.startswith("claude"):
+        model = DEFAULT_MODEL
+
+    logger.info(f"[pregame] session={session_id[:12]} app={application_bucket} msg={user_message[:60]}")
+
+    # Step 1 — KB lookup
+    kb = step1_knowledge(application_bucket)
+    logger.info(f"[pregame] step1: kb keys={list(kb.keys())[:5]}")
+
+    # Step 2 — Pandas fetch
+    candidates = step2_fetch_candidates(df, application_bucket, max_results=15)
+    logger.info(f"[pregame] step2: {len(candidates)} candidates")
+
+    if not candidates:
+        return {
+            "response": (
+                f"I don't have any active in-stock parts for {application_bucket} "
+                "right now. Check with the office on alternatives."
+            ),
+            "products": [],
+            "intent": "pregame",
+            "cost": "$0",
+            "context_key": session_id,
+        }
+
+    # Step 3 — Parallel reasoning (8 branches)
+    all_branches = list(PROMPTS.keys())
+    reasoning = await step3_parallel_reason(
+        branch_keys=all_branches,
+        customer_context=customer_context or user_message,
+        application=application_bucket,
+        kb_context=kb,
+        candidates=candidates,
+        api_key=api_key,
+        model=model,
+    )
+    logger.info(f"[pregame] step3: {len(reasoning)}/{len(all_branches)} branches completed")
+
+    # Step 4 — Aggregate
+    aggregated = step4_aggregate(reasoning)
+
+    # Step 5 — Gatekeeper
+    gate = step5_gatekeeper(customer_context or user_message, application_bucket)
+    logger.info(f"[pregame] step5: safe={gate.get('safe')}")
+
+    # Step 6 — Cache + return Turn 1 answer
+    elapsed = time.time() - start_time
+    context_obj = {
+        "session_id": session_id,
+        "timestamp": time.time(),
+        "intent": "pregame",
+        "application": application_bucket,
+        "customer_context": customer_context or user_message,
+        "knowledge": kb,
+        "candidates": candidates,
+        "reasoning": reasoning,
+        "aggregated": aggregated,
+        "gatekeeper": gate,
+        "elapsed_seconds": elapsed,
+    }
+    set_context(session_id, context_obj)
+    logger.info(f"[pregame] cached context for session {session_id[:12]} ({elapsed:.1f}s)")
+
+    # Gatekeeper override: if not safe, return escalation immediately
+    if not gate.get("safe"):
+        return {
+            "response": gate.get("response", "This application needs engineering review."),
+            "products": [],
+            "intent": "escalation",
+            "cost": f"~${0.01 * len(reasoning):.2f}",
+            "context_key": session_id,
+        }
+
+    # Primary Turn 1 answer comes from the pregame_summary branch
+    turn1_answer = reasoning.get("pregame_summary", "").strip()
+    if not turn1_answer:
+        # Fallback: synthesize from top_picks if pregame_summary failed
+        turn1_answer = reasoning.get("top_picks", "").strip() or (
+            f"Found {len(candidates)} active {application_bucket} parts in stock. "
+            f"Leading with {candidates[0].get('Part_Number', 'top pick')}. "
+            "Ask me what you want to know."
+        )
+
+    return {
+        "response": turn1_answer,
+        "products": candidates[:5],
+        "intent": "pregame",
+        "cost": f"~${0.02 * len(reasoning):.2f}",
+        "context_key": session_id,
+        "structured": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Turn 2+ handler — cache hit = instant answer
+# ---------------------------------------------------------------------------
+
+# User phrase → branch key mapping for Turn 2+ cache lookups.
+# Deterministic, case-insensitive substring match.
+TURN2_BRANCH_MAP = [
+    (["top pick", "top 3", "best pick", "best fit", "recommend"], "top_picks"),
+    (["compare the top", "compare those", "compare the first", "side by side", "compare them"], "compare_top_2"),
+    (["pregame", "summary", "brief me", "prep me", "walk me through"], "pregame_summary"),
+    (["questions", "what to ask", "what should i ask", "what do i ask"], "questions_to_ask"),
+    (["alternative", "alternatives", "other option", "backup", "substitute"], "alternatives"),
+    (["risk", "flag", "concern", "warning", "watch out"], "risk_flags"),
+    (["cross sell", "cross-sell", "pair with", "goes with", "upsell"], "cross_sell"),
+    (["what's next", "whats next", "next question"], "scenario_next"),
+]
+
+
+def match_turn2_branch(user_message: str) -> Optional[str]:
+    """Match a follow-up message to a cached branch key."""
+    msg = user_message.lower().strip()
+    for phrases, branch_key in TURN2_BRANCH_MAP:
+        if any(phrase in msg for phrase in phrases):
+            return branch_key
+    return None
+
+
+def handle_turn2(session_id: str, user_message: str) -> Optional[dict[str, Any]]:
+    """
+    Check if we have cached context for this session AND the user's message
+    matches one of the 8 pre-computed branches. If yes, return the cached
+    answer instantly. If no, return None (caller falls through to live handler).
+    """
+    ctx = get_context(session_id)
+    if not ctx:
+        return None
+
+    branch_key = match_turn2_branch(user_message)
+    if not branch_key:
+        return None
+
+    reasoning = ctx.get("reasoning", {})
+    cached_answer = reasoning.get(branch_key, "").strip()
+    if not cached_answer:
+        return None
+
+    logger.info(f"[turn2] cache HIT session={session_id[:12]} branch={branch_key}")
+    return {
+        "response": cached_answer,
+        "products": ctx.get("candidates", [])[:5],
+        "intent": "pregame_followup",
+        "cost": "$0 (cached)",
+        "context_key": session_id,
+        "cache_hit": True,
+        "branch": branch_key,
+    }
