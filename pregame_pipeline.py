@@ -129,15 +129,20 @@ def step2_fetch_candidates(
     # --- STRICT FILTER: John's expert rules narrow the candidate set ---
 
     # Preferred manufacturers (Filtrox for brewery, Pall for pharma, etc.)
+    # Check Manufacturer, Final_Manufacturer, AND Supplier because the
+    # rebuild script's Product_Group → Manufacturer map doesn't cover every
+    # code (e.g., Filtrox parts live under a code that wasn't in the map, so
+    # their Manufacturer column is blank but Supplier_Name is "FILTROX North America Inc.").
     if rules.get("preferred_manufacturers"):
         pref_mfrs = [m.strip().lower() for m in rules["preferred_manufacturers"]]
-        mfr_cols = [c for c in ("Manufacturer", "Final_Manufacturer") if c in matches.columns]
+        mfr_cols = [c for c in ("Manufacturer", "Final_Manufacturer", "Supplier") if c in matches.columns]
         if mfr_cols:
             mask = pd.Series(False, index=matches.index)
             for col in mfr_cols:
                 col_lower = matches[col].astype(str).str.lower().str.strip()
                 for mfr in pref_mfrs:
-                    # Substring match (handles "Pall Corporation" matching "Pall")
+                    # Substring match (handles "Pall Corporation" matching "Pall",
+                    # "FILTROX North America Inc." matching "filtrox", etc.)
                     mask = mask | col_lower.str.contains(mfr, na=False, regex=False)
             narrowed = matches[mask]
             if not narrowed.empty:
@@ -196,6 +201,24 @@ def step2_fetch_candidates(
         by=["_is_active", "_in_stock", "_stock_qty"],
         ascending=[False, False, False],
     )
+
+    # HARD FILTER: prefer ACTIVE + in-stock. Only fall back to dormant/OOS
+    # if there are literally no active+stocked parts that match. This is
+    # what makes Turn 1 answers actually useful instead of "here's a
+    # dormant part from 5-10 years ago that's also out of stock."
+    active_stocked = matches[(matches["_is_active"] == 1) & (matches["_in_stock"] == 1)]
+    if len(active_stocked) >= 1:
+        matches = active_stocked
+        logger.info(f"[step2] hard filter to ACTIVE+stocked → {len(matches)}")
+    else:
+        # Try just active (any stock)
+        active_any = matches[matches["_is_active"] == 1]
+        if len(active_any) >= 1:
+            matches = active_any
+            logger.info(f"[step2] no active+stocked, falling back to ACTIVE any-stock → {len(matches)}")
+        else:
+            logger.info(f"[step2] no active parts at all, keeping dormant sorted by stock → {len(matches)}")
+
     matches = matches.drop(columns=["_is_active", "_in_stock", "_stock_qty"])
 
     # Format via search.format_product for clean output
