@@ -268,6 +268,11 @@ class EnproAgent:
 
             # Model is done (no more tool calls)
             assistant_message = choice.message.content or ""
+            # Strip reasoning model <think> blocks from final response
+            import re as _re
+            assistant_message = _re.sub(r"<think>.*?</think>", "", assistant_message, flags=_re.DOTALL).strip()
+            # Some reasoning models output thinking without tags — if response starts with
+            # "Okay, let me..." or similar reasoning markers, it's probably raw thoughts
             thread.append({"role": "assistant", "content": assistant_message})
 
             # Trim thread to prevent unbounded growth (keep last 40 messages)
