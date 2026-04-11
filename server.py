@@ -136,28 +136,24 @@ async def lifespan(app: FastAPI):
             if settings.USE_AGENT:
                 try:
                     global _agent
-                    deployment = settings.AZURE_AGENT_DEPLOYMENT or ""
-                    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-                    use_claude = bool(anthropic_key) and deployment.lower().startswith("claude")
-                    if use_claude:
-                        from agent_claude import EnproClaudeAgent
-                        _agent = EnproClaudeAgent(
-                            df=state.df,
-                            chemicals_df=state.chemicals_df,
-                            api_key=anthropic_key,
-                            model=deployment,
-                        )
-                        logger.info(f"Claude agent initialized: model={deployment}")
-                    else:
-                        from agent import EnproAgent
-                        _agent = EnproAgent(
-                            df=state.df,
-                            chemicals_df=state.chemicals_df,
-                            deployment=deployment,
-                        )
-                        logger.info(f"Azure agent initialized: model={deployment}")
+                    # Hard override: force gpt-4o as the agent model regardless
+                    # of AZURE_AGENT_DEPLOYMENT. Per feedback_model_choice memory
+                    # (200/200 benchmark 2026-04-10) this is the known-working
+                    # Azure deployment. Reasoning models and Claude are both
+                    # failing this session — gpt-4o is the floor.
+                    FORCED_DEPLOYMENT = "gpt-4o"
+                    from agent import EnproAgent
+                    _agent = EnproAgent(
+                        df=state.df,
+                        chemicals_df=state.chemicals_df,
+                        deployment=FORCED_DEPLOYMENT,
+                    )
+                    logger.info(
+                        f"Azure agent initialized (FORCED): model={FORCED_DEPLOYMENT} "
+                        f"(env AZURE_AGENT_DEPLOYMENT={settings.AZURE_AGENT_DEPLOYMENT!r} ignored)"
+                    )
                 except Exception as e:
-                    logger.error(f"Agent init failed (falling back to router): {e}")
+                    logger.error(f"Agent init failed (falling back to router): {e}", exc_info=True)
                     _agent = None
 
             # Initialize v3.0 unified backend
